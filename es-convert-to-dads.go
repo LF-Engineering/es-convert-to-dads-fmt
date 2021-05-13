@@ -572,7 +572,7 @@ func esBulkUploadFunc(idxFrom, idxTo, itemID string, thrN int, docs, outDocs *[]
 	return
 }
 
-func handleMapping(idx string, mapping []byte) (err error) {
+func handleMapping(idx string, mapping []byte, useDefault bool) (err error) {
 	// Create index, ignore if exists (see status 400 is not in error statuses)
 	url := gESURL + "/" + idx
 	fmt.Printf("index: %s\n", url)
@@ -616,21 +616,23 @@ func handleMapping(idx string, mapping []byte) (err error) {
 		map[[2]int]struct{}{{200, 200}: {}},
 	)
 	fmt.Printf("index mapping %s -> status=%d, result: %+v\n", url, status, stringResult(result))
-	fmt.Printf("mapping: %+v\n", string(mapping))
+	//fmt.Printf("mapping: %+v\n", string(mapping))
 	fatalOnError(err)
-	// Global not analyze string mapping
-	result, status, _, _, _, err = request(
-		url,
-		"PUT",
-		map[string]string{"Content-Type": "application/json"},
-		gNotAnalyzeString,
-		[]string{},
-		nil,
-		nil,
-		map[[2]int]struct{}{{200, 200}: {}},
-	)
-	fmt.Printf("index not analyze string mapping %s -> status=%d, result: %+v\n", url, status, stringResult(result))
-	fatalOnError(err)
+	if useDefault {
+		// Global not analyze string mapping
+		result, status, _, _, _, err = request(
+			url,
+			"PUT",
+			map[string]string{"Content-Type": "application/json"},
+			gNotAnalyzeString,
+			[]string{},
+			nil,
+			nil,
+			map[[2]int]struct{}{{200, 200}: {}},
+		)
+		fmt.Printf("index not analyze string mapping %s -> status=%d, result: %+v\n", url, status, stringResult(result))
+		fatalOnError(err)
+	}
 	return
 }
 
@@ -640,13 +642,13 @@ func itemsFunc(idxFrom, idxTo, idField string, thrN int, items []interface{}, do
 }
 
 func convertGitHub(idxFrom, idxTo string) (err error) {
-	fatalOnError(handleMapping(idxTo, gMapping["github"]))
+	fatalOnError(handleMapping(idxTo, gMapping["github"], false))
 	err = forEachESItem(idxFrom, idxTo, "id", esBulkUploadFunc, itemsFunc)
 	return
 }
 
 func convertGit(idxFrom, idxTo string) (err error) {
-	fatalOnError(handleMapping(idxTo, gMapping["git"]))
+	fatalOnError(handleMapping(idxTo, gMapping["git"], false))
 	err = forEachESItem(idxFrom, idxTo, "uuid", esBulkUploadFunc, itemsFunc)
 	return
 }
