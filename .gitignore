@@ -18,3 +18,8 @@
 *.swp
 out
 es-convert-to-dads
+dads.json
+dads.txt
+p2o.json
+p2o.txt
+report.txt
