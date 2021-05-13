@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"os"
 	"runtime"
 	"runtime/debug"
@@ -68,6 +69,21 @@ var (
 			"merged_by_data_gender_acc":   {},
 			"merged_by_data_gender":       {},
 		},
+		"git": {
+			"repository_labels":           {},
+			"project_1":                   {},
+			"metadata__gelk_version":      {},
+			"metadata__gelk_backend_name": {},
+			"metadata__filter_raw":        {},
+			"author_gender_acc":           {},
+			"author_gender":               {},
+			"assignee_data_gender_acc":    {},
+			"assignee_data_gender":        {},
+			"Commit_gender":               {},
+			"Commit_gender_acc":           {},
+			"Author_gender":               {},
+			"Author_gender_acc":           {},
+		},
 	}
 	gCopyFields = map[string]map[[2]string]struct{}{
 		"github/issue": {
@@ -79,6 +95,7 @@ var (
 			[2]string{"id", "pull_request_id"}: {},
 			[2]string{"merged", "is_approved"}: {},
 		},
+		"git": {},
 	}
 )
 
@@ -481,7 +498,6 @@ func forEachESItem(
 func sendToElastic(idxName, key string, items []interface{}) (err error) {
 	fmt.Printf("%s(key=%s) ES bulk uploading %d items\n", idxName, key, len(items))
 	url := gESURL + "/" + idxName + "/_bulk?refresh=true"
-	// {"index":{"_id":"uuid"}}
 	payloads := []byte{}
 	newLine := []byte("\n")
 	var (
@@ -691,6 +707,8 @@ func handleMapping(idx string, mapping []byte, useDefault bool) (err error) {
 }
 func translate(in map[string]interface{}, ds string) (map[string]interface{}, error) {
 	switch ds {
+	case "git":
+		return translateGit(in)
 	case "github/issue":
 		return translateGithubIssue(in)
 	case "github/pull_request":
@@ -698,6 +716,117 @@ func translate(in map[string]interface{}, ds string) (map[string]interface{}, er
 	default:
 		return nil, fmt.Errorf("translate for %s ds type not implemented", ds)
 	}
+}
+
+func getRepoShortURL(origin string) (repoShortName string) {
+	lastSlashItem := func(arg string) string {
+		arg = strings.TrimSuffix(arg, "/")
+		arr := strings.Split(arg, "/")
+		lArr := len(arr)
+		if lArr > 1 {
+			return arr[lArr-1]
+		}
+		return arg
+	}
+	if strings.Contains(origin, "/github.com/") {
+		// https://github.com/org/repo.git --> repo
+		arg := strings.TrimSuffix(origin, ".git")
+		repoShortName = lastSlashItem(arg)
+		return
+	} else if strings.Contains(origin, "/gerrit.") {
+		// https://gerrit.xyz/r/org/repo -> repo
+		repoShortName = lastSlashItem(origin)
+		return
+	} else if strings.Contains(origin, "/gitlab.com") {
+		// https://gitlab.com/org/repo -> repo
+		repoShortName = lastSlashItem(origin)
+		return
+	} else if strings.Contains(origin, "/bitbucket.org/") {
+		// https://bitbucket.org/org/repo.git/src/
+		arg := strings.TrimSuffix(origin, "/")
+		arg = strings.TrimSuffix(arg, "/src")
+		arg = strings.TrimSuffix(arg, ".git")
+		repoShortName = lastSlashItem(arg)
+		return
+	}
+	// Fall back
+	repoShortName = lastSlashItem(origin)
+	return
+}
+
+func getCommitURL(origin, hash string) string {
+	if strings.Contains(origin, "github.com") {
+		return origin + "/commit/" + hash
+	} else if strings.Contains(origin, "gitlab.com") {
+		return origin + "/-/commit/" + hash
+	} else if strings.Contains(origin, "bitbucket.org") {
+		return origin + "/commits/" + hash
+	} else if strings.Contains(origin, "gerrit") || strings.Contains(origin, "review") {
+		u, err := url.Parse(origin)
+		if err != nil {
+			fmt.Printf("cannot parse git commit origin: '%s'\n", origin)
+			return origin + "/" + hash
+		}
+		baseURL := u.Scheme + "://" + u.Host
+		vURL := "gitweb"
+		if strings.Contains(u.Path, "/gerrit/") {
+			vURL = "gerrit/gitweb"
+		} else if strings.Contains(u.Path, "/r/") {
+			vURL = "r/gitweb"
+		}
+		project := strings.Replace(u.Path, "/gerrit/", "", -1)
+		project = strings.Replace(project, "/r/", "", -1)
+		project = strings.TrimLeft(project, "/")
+		projectURL := "p=" + project + ".git"
+		typeURL := "a=commit"
+		hashURL := "h=" + hash
+		return baseURL + "/" + vURL + "?" + projectURL + ";" + typeURL + ";" + hashURL
+	} else if strings.Contains(origin, "git.") && (!strings.Contains(origin, "gerrit") || !strings.Contains(origin, "review")) {
+		return origin + "/commit/?id=" + hash
+	}
+	return origin + "/" + hash
+}
+
+func translateGit(in map[string]interface{}) (out map[string]interface{}, err error) {
+	out = make(map[string]interface{})
+	noCopyFields := gNoCopyFields["git"]
+	for k, v := range in {
+		_, noCopy := noCopyFields[k]
+		if noCopy {
+			continue
+		}
+		out[k] = v
+	}
+	copyFields := gCopyFields["git"]
+	for data := range copyFields {
+		from := data[0]
+		to := data[1]
+		out[to], _ = in[from]
+	}
+	_, ok := in["project"]
+	if ok {
+		out["project_ts"] = time.Now().Unix()
+	}
+	origin, _ := in["origin"].(string)
+	githubRepo := origin
+	if strings.HasSuffix(githubRepo, ".git") {
+		githubRepo = githubRepo[:len(githubRepo)-4]
+	}
+	if strings.Contains(githubRepo, cGitHubURLRoot) {
+		githubRepo = strings.Replace(githubRepo, cGitHubURLRoot, "", -1)
+		out["github_repo"] = githubRepo
+	}
+	out["repo_short_name"] = getRepoShortURL(origin)
+	hsh, _ := in["hash"].(string)
+	out["commit_url"] = getCommitURL(origin, hsh)
+	out["type"] = "commit"
+	// p2o doesn't have it
+	out["project_slug"] = nil
+	out["total_lines_of_code"] = 0
+	out["program_language_summary"] = []interface{}{}
+	out["file_data"] = []interface{}{}
+	out["doc_commit"] = false
+	return
 }
 
 func translateGithubIssue(in map[string]interface{}) (out map[string]interface{}, err error) {
@@ -891,7 +1020,7 @@ func convertGitHubPullRequest(idxFrom, idxTo string) (err error) {
 
 func convertGit(idxFrom, idxTo string) (err error) {
 	fatalOnError(handleMapping(idxTo, gMapping["git"], false))
-	err = forEachESItem("git", idxFrom, idxTo, "uuid", esBulkUploadFunc, itemsFunc)
+	err = forEachESItem("git", idxFrom, idxTo, "url_id", esBulkUploadFunc, itemsFunc)
 	return
 }
 
