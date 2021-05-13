@@ -15,27 +15,27 @@ if [ -z "${ES2_URL}" ]
 then
   export ES2_URL="`cat ES_URL.test.secret`"
 fi
-if [ -z "${IDX1}" ] 
+if [ -z "${IDX1}" ]
 then
   export IDX1='bitergia-github_symphonyoss_180322_enriched_200930'
 fi
-if [ -z "${IDX2}" ] 
+if [ -z "${IDX2}" ]
 then
   export IDX2='sds-cncf-k8s-github-issue'
 fi
-if [ -z "${KEY1}" ] 
+if [ -z "${KEY1}" ]
 then
   export KEY1=url_id
 fi
-if [ -z "${KEY2}" ] 
+if [ -z "${KEY2}" ]
 then
   export KEY2=url_id
 fi
-if [ -z "${ID1}" ] 
+if [ -z "${ID1}" ]
 then
   export ID1='finos/alloy/issues/40'
 fi
-if [ -z "${ID2}" ] 
+if [ -z "${ID2}" ]
 then
   export ID2='kubernetes-sigs/kustomize/issues/2321'
 fi
