@@ -42,11 +42,18 @@ var (
 			"metadata__gelk_version":      {},
 			"metadata__gelk_backend_name": {},
 			"metadata__filter_raw":        {},
+			"item_type":                   {},
+			"id":                          {},
+			"author_gender_acc":           {},
+			"author_gender":               {},
+			"assignee_data_gender_acc":    {},
+			"assignee_data_gender":        {},
 		},
 	}
 	gCopyFields = map[string]map[[2]string]struct{}{
 		"github": {
 			[2]string{"origin", "repo_name"}: {},
+			[2]string{"id", "issue_id"}:      {},
 		},
 	}
 )
@@ -658,8 +665,16 @@ func handleMapping(idx string, mapping []byte, useDefault bool) (err error) {
 	}
 	return
 }
+func translate(in map[string]interface{}, ds string) (map[string]interface{}, error) {
+	switch ds {
+	case "github":
+		return translateGithub(in)
+	default:
+		return nil, fmt.Errorf("translate for %s ds type not implemented", ds)
+	}
+}
 
-func translate(in map[string]interface{}, ds string) (out map[string]interface{}) {
+func translateGithub(in map[string]interface{}) (out map[string]interface{}, err error) {
 	/*
 	   	gNoCopyFields = map[string]map[string]struct{}{
 	   		"github": {
@@ -708,109 +723,20 @@ func translate(in map[string]interface{}, ds string) (out map[string]interface{}
 	out["n_comments"] = 0
 	out["n_commenters"] = 0
 	out["n_assignees"] = 0
-	// miss project_slug
-	/*
-	   -- p2o
-	             "labels": [],
-	   da-ds:
-	   -------------------------------------------
-	             "labels": [
-	             "item_type": "issue pull request",
-	             "issue_id": 592785418,
-	             "is_github_issue": 1,
-	             "id_in_repo": 2321,
-	             "id": "kubernetes-sigs/kustomize/issue/2321",
-	             "grimoire_creation_date": "2020-04-02T17:05:23Z",
-	             "github_repo": "kubernetes-sigs/kustomize",
-	             "created_at": "2020-04-02T17:05:23Z",
-	             "commenters": [
-	             "closed_at": "2020-04-22T04:28:28Z",
-	             "category": "issue",
-	             "body_analyzed": "Some `helm` syntax has changed from [v2 to v3 [0]](https://helm.sh/docs/topics/v2_v3_migration/) so `helm` invocations from the script needed to be adapted.\r\nIn order to support both versions, I have splitted the plugin in 2 different functions files for the affected invocations. I hope it looks good :)\r\n\r\n[0] https://helm.sh/docs/topics/v2_v3_migration/",
-	             "body": "Some `helm` syntax has changed from [v2 to v3 [0]](https://helm.sh/docs/topics/v2_v3_migration/) so `helm` invocations from the script needed to be adapted.\r\nIn order to support both versions, I have splitted the plugin in 2 different functions files for the affected invocations. I hope it looks good :)\r\n\r\n[0] https://helm.sh/docs/topics/v2_v3_migration/",
-	             "author_uuid": "e4881fe48831a2b2d834dc603f664322010b75ac",
-	             "author_user_name": "rcmorano",
-	             "author_org_name": "Stuart",
-	             "author_name": "Roberto C. Morano",
-	             "author_login": "rcmorano",
-	             "author_id": "e4881fe48831a2b2d834dc603f664322010b75ac",
-	             "author_domain": "none.guru",
-	             "author_bot": false,
-	             "assignees_data": [
-	             "assignee_org": "google",
-	             "assignee_name": "Jeff Regan",
-	             "assignee_login": "monopole",
-	             "assignee_location": "Mountain View CA",
-	             "assignee_geolocation": null,
-	             "assignee_domain": null,
-	             "assignee_data_uuid": "a417e7227b6d27a254b7d215a9374164b318c05e",
-	             "assignee_data_user_name": "monopole",
-	             "assignee_data_org_name": "Google",
-	             "assignee_data_name": "Jeff Regan",
-	             "assignee_data_multi_org_names": [
-	             "assignee_data_id": "a417e7227b6d27a254b7d215a9374164b318c05e",
-	             "assignee_data_domain": null,
-	             "assignee_data_bot": false,
-	               "size/M"
-	               "rcmorano",
-	               "pwittrock",
-	               "ok-to-test",
-	               "needs-rebase",
-	               "monopole"
-	               "lgtm",
-	               "k8s-ci-robot",
-	               "cncf-cla: yes",
-	               "approved",
-	               "aodinokov",
-	               "Stuart",
-	               "Google"
-	               "EMURGO"
-	   -------------------------------------------
-	   p2o:
-	   -------------------------------------------
-	             "item_type": "issue",
-	             "is_github_issue": 1,
-	             "id_in_repo": "40",
-	             "id": 550416630,
-	             "grimoire_creation_date": "2020-01-15T20:38:04+00:00",
-	             "github_repo": "finos/alloy",
-	             "created_at": "2020-01-15T20:38:04Z",
-	             "cm_type": "PROJECT",
-	             "cm_title": "Alloy",
-	             "cm_state": "INCUBATING",
-	             "cm_program": "TopLevel",
-	             "cm_formed": "2020-01-30",
-	             "cm_contributed": "2020-01-30",
-	             "closed_at": "2020-02-26T16:15:12Z",
-	             "author_uuid": "23a161cf1252c045e6e265fd37cacb4dbf283a6b",
-	             "author_user_name": "",
-	             "author_org_name": "FINOS",
-	             "author_name": "Aitana Myohl",
-	             "author_multi_org_names": [
-	             "author_id": "bcadc92e9ee995bf28cd2ccd5430198b5343306f",
-	             "author_gender_acc": 0,
-	             "author_gender": "Unknown",
-	             "author_domain": "finos.org",
-	             "author_bot": false,
-	             "assignee_org": "FINOS",
-	             "assignee_name": null,
-	             "assignee_login": "aitana16",
-	             "assignee_location": "New York",
-	             "assignee_geolocation": null,
-	             "assignee_domain": null,
-	             "assignee_data_uuid": "23a161cf1252c045e6e265fd37cacb4dbf283a6b",
-	             "assignee_data_user_name": "",
-	             "assignee_data_org_name": "FINOS",
-	             "assignee_data_name": "Aitana Myohl",
-	             "assignee_data_multi_org_names": [
-	             "assignee_data_id": "bcadc92e9ee995bf28cd2ccd5430198b5343306f",
-	             "assignee_data_gender_acc": 0,
-	             "assignee_data_gender": "Unknown",
-	             "assignee_data_domain": "finos.org",
-	             "assignee_data_bot": false,
-	               "FINOS"
-	   -------------------------------------------
-	*/
+	out["type"] = "issue"
+	pr, _ := in["pull_request"]
+	if pr.(bool) {
+		out["item_type"] = "issue pull request"
+	} else {
+		out["item_type"] = "issue"
+	}
+	number, _ := in["id_in_repo"]
+	out["id"] = githubRepo + "/issue/" + number.(string)
+	out["commenters"] = []interface{}{}
+	out["assignees_data"] = []interface{}{}
+	out["category"] = "issue"
+	// p2o doesn't have it
+	out["project_slug"] = nil
 	return
 }
 
@@ -836,7 +762,8 @@ func itemsFunc(dsType, idxFrom, idxTo, idField string, thrN int, items []interfa
 			return
 		}
 		in, _ := doc.(map[string]interface{})
-		out := translate(in, dsType)
+		out, e := translate(in, dsType)
+		fatalOnError(e)
 		if thrN > 1 {
 			mtx.Lock()
 		}
