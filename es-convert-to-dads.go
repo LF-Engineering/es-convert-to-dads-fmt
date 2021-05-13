@@ -237,9 +237,9 @@ func request(
 }
 
 func forEachESItem(
-	idxFrom, idxTo, idField string,
-	ufunct func(string, string, string, int, *[]interface{}, *[]interface{}, bool) error,
-	uitems func(string, string, string, int, []interface{}, *[]interface{}) error,
+	dsType, idxFrom, idxTo, idField string,
+	ufunct func(string, string, string, string, int, *[]interface{}, *[]interface{}, bool) error,
+	uitems func(string, string, string, string, int, []interface{}, *[]interface{}) error,
 ) (err error) {
 	packSize := 1000
 	var (
@@ -297,7 +297,7 @@ func forEachESItem(
 		if thrN > 1 {
 			mtx.Lock()
 		}
-		e = ufunct(idxFrom, idxTo, idField, thrN, &docs, &outDocs, last)
+		e = ufunct(dsType, idxFrom, idxTo, idField, thrN, &docs, &outDocs, last)
 		return
 	}
 	for {
@@ -362,7 +362,7 @@ func forEachESItem(
 		if thrN > 1 {
 			mtx.Lock()
 		}
-		err = uitems(idxFrom, idxTo, idField, thrN, items, &docs)
+		err = uitems(dsType, idxFrom, idxTo, idField, thrN, items, &docs)
 		if err != nil {
 			return
 		}
@@ -443,9 +443,14 @@ func sendToElastic(idxName, key string, items []interface{}) (err error) {
 		if err != nil {
 			return
 		}
-		id, ok := item.(map[string]interface{})[key].(string)
+		iID, ok := item.(map[string]interface{})[key]
 		if !ok {
 			err = fmt.Errorf("missing %s property in %+v", key, dumpKeys(item))
+			return
+		}
+		id, ok := iID.(string)
+		if !ok {
+			err = fmt.Errorf("%s property is %T not string %+v", key, iID, iID)
 			return
 		}
 		hdr = []byte(`{"index":{"_id":"` + id + "\"}}\n")
@@ -513,8 +518,8 @@ func sendToElastic(idxName, key string, items []interface{}) (err error) {
 	return
 }
 
-func esBulkUploadFunc(idxFrom, idxTo, itemID string, thrN int, docs, outDocs *[]interface{}, last bool) (e error) {
-	fmt.Printf("ES bulk uploading %d/%d func\n", len(*docs), len(*outDocs))
+func esBulkUploadFunc(dsType, idxFrom, idxTo, itemID string, thrN int, docs, outDocs *[]interface{}, last bool) (e error) {
+	fmt.Printf("%s(%s): %s -> %s: ES bulk uploading %d/%d func\n", dsType, itemID, idxFrom, idxTo, len(*docs), len(*outDocs))
 	bulkSize := 1000
 	run := func() (err error) {
 		nItems := len(*outDocs)
@@ -530,9 +535,7 @@ func esBulkUploadFunc(idxFrom, idxTo, itemID string, thrN int, docs, outDocs *[]
 				to = nItems
 			}
 			fmt.Printf("ES bulk upload: bulk uploading pack #%d %d-%d (%d/%d) to ES\n", i+1, from, to, to-from, nPacks)
-			// FIXME
-			fmt.Printf("--- stub ---\n")
-			// err = sendToElastic(idxTo, itemID, (*outDocs)[from:to])
+			err = sendToElastic(idxTo, itemID, (*outDocs)[from:to])
 			if err != nil {
 				return
 			}
@@ -636,20 +639,87 @@ func handleMapping(idx string, mapping []byte, useDefault bool) (err error) {
 	return
 }
 
-func itemsFunc(idxFrom, idxTo, idField string, thrN int, items []interface{}, docs *[]interface{}) (err error) {
-	fmt.Printf("%s -> %s: %d items, %d threads\n", idxFrom, idxTo, len(items), thrN)
+func translate(in map[string]interface{}, ds string) (out map[string]interface{}) {
+	// FIXME
+	//fmt.Printf("object with %d props\n", len(in))
+	out = in
+	return
+}
+
+func itemsFunc(dsType, idxFrom, idxTo, idField string, thrN int, items []interface{}, docs *[]interface{}) (err error) {
+	fmt.Printf("%s(%s): %s -> %s: %d items, %d threads\n", dsType, idField, idxFrom, idxTo, len(items), thrN)
+	var (
+		mtx *sync.Mutex
+		ch  chan error
+	)
+	if thrN > 1 {
+		mtx = &sync.Mutex{}
+		ch = make(chan error)
+	}
+	procItem := func(c chan error, item interface{}) (e error) {
+		defer func() {
+			if c != nil {
+				c <- e
+			}
+		}()
+		doc, ok := item.(map[string]interface{})["_source"]
+		if !ok {
+			e = fmt.Errorf("Missing _source in item %+v", dumpKeys(item))
+			return
+		}
+		in, _ := doc.(map[string]interface{})
+		out := translate(in, dsType)
+		if thrN > 1 {
+			mtx.Lock()
+		}
+		*docs = append(*docs, out)
+		if thrN > 1 {
+			mtx.Unlock()
+		}
+		return
+	}
+	if thrN > 1 {
+		nThreads := 0
+		for _, item := range items {
+			go func(it interface{}) {
+				_ = procItem(ch, it)
+			}(item)
+			nThreads++
+			if nThreads == thrN {
+				err = <-ch
+				if err != nil {
+					return
+				}
+				nThreads--
+			}
+		}
+		for nThreads > 0 {
+			err = <-ch
+			nThreads--
+			if err != nil {
+				return
+			}
+		}
+		return
+	}
+	for _, item := range items {
+		err = procItem(nil, item)
+		if err != nil {
+			return
+		}
+	}
 	return
 }
 
 func convertGitHub(idxFrom, idxTo string) (err error) {
 	fatalOnError(handleMapping(idxTo, gMapping["github"], false))
-	err = forEachESItem(idxFrom, idxTo, "id", esBulkUploadFunc, itemsFunc)
+	err = forEachESItem("github", idxFrom, idxTo, "id", esBulkUploadFunc, itemsFunc)
 	return
 }
 
 func convertGit(idxFrom, idxTo string) (err error) {
 	fatalOnError(handleMapping(idxTo, gMapping["git"], false))
-	err = forEachESItem(idxFrom, idxTo, "uuid", esBulkUploadFunc, itemsFunc)
+	err = forEachESItem("git", idxFrom, idxTo, "uuid", esBulkUploadFunc, itemsFunc)
 	return
 }
 
