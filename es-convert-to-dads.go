@@ -666,25 +666,15 @@ func handleMapping(idx string, mapping []byte, useDefault bool) (err error) {
 	return
 }
 func translate(in map[string]interface{}, ds string) (map[string]interface{}, error) {
-	switch ds {
-	case "github":
-		return translateGithub(in)
-	default:
-		return nil, fmt.Errorf("translate for %s ds type not implemented", ds)
-	}
+  switch ds {
+  case "github":
+    return translateGithub(in)
+  default:
+    return nil, fmt.Errorf("translate for %s ds type not implemented", ds)
+  }
 }
 
 func translateGithub(in map[string]interface{}) (out map[string]interface{}, err error) {
-	/*
-	   	gNoCopyFields = map[string]map[string]struct{}{
-	   		"github": {
-	   			"user_data_gender_acc": {},
-	   			"user_data_gender":     {},
-	         "repository_labels":    {},
-	         "project_1":            {},
-	   		},
-	   	}
-	*/
 	out = make(map[string]interface{})
 	noCopyFields := gNoCopyFields["github"]
 	for k, v := range in {
@@ -763,7 +753,7 @@ func itemsFunc(dsType, idxFrom, idxTo, idField string, thrN int, items []interfa
 		}
 		in, _ := doc.(map[string]interface{})
 		out, e := translate(in, dsType)
-		fatalOnError(e)
+    fatalOnError(e)
 		if thrN > 1 {
 			mtx.Lock()
 		}
