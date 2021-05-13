@@ -18,6 +18,10 @@ import (
 	jsoniter "github.com/json-iterator/go"
 )
 
+const (
+	cGitHubURLRoot = "https://github.com/"
+)
+
 var (
 	gESURL            string
 	gNotAnalyzeString = []byte(`{"dynamic_templates":[{"notanalyzed":{"match":"*","match_mapping_type":"string","mapping":{"type":"keyword"}}},{"formatdate":{"match":"*","match_mapping_type":"date","mapping":{"type":"date","format":"strict_date_optional_time||epoch_millis"}}}]}`)
@@ -28,6 +32,22 @@ var (
 	gMapping = map[string][]byte{
 		"github": []byte(`{"dynamic":true,"properties":{"metadata__updated_on":{"type":"date","format":"strict_date_optional_time||epoch_millis"},"merge_author_geolocation":{"type":"geo_point"},"assignee_geolocation":{"type":"geo_point"},"state":{"type":"keyword"},"user_geolocation":{"type":"geo_point"},"title_analyzed":{"type":"text","index":true},"body_analyzed":{"type":"text","index":true}},"dynamic_templates":[{"notanalyzed":{"match":"*","unmatch":"body","match_mapping_type":"string","mapping":{"type":"keyword"}}},{"formatdate":{"match":"*","match_mapping_type":"date","mapping":{"format":"strict_date_optional_time||epoch_millis","type":"date"}}}]}`),
 		"git":    []byte(`{"dynamic":true,"properties":{"file_data":{"type":"nested"},"authors_signed":{"type":"nested"},"authors_co_authored":{"type":"nested"},"authors_tested":{"type":"nested"},"authors_approved":{"type":"nested"},"authors_reviewed":{"type":"nested"},"authors_reported":{"type":"nested"},"authors_informed":{"type":"nested"},"authors_resolved":{"type":"nested"},"authors_influenced":{"type":"nested"},"author_name":{"type":"keyword"},"metadata__updated_on":{"type":"date","format":"strict_date_optional_time||epoch_millis"},"message_analyzed":{"type":"text","index":true}},"dynamic_templates":[{"notanalyzed":{"match":"*","unmatch":"message_analyzed","match_mapping_type":"string","mapping":{"type":"keyword"}}},{"formatdate":{"match":"*","match_mapping_type":"date","mapping":{"format":"strict_date_optional_time||epoch_millis","type":"date"}}}]}`),
+	}
+	gNoCopyFields = map[string]map[string]struct{}{
+		"github": {
+			"user_data_gender_acc":        {},
+			"user_data_gender":            {},
+			"repository_labels":           {},
+			"project_1":                   {},
+			"metadata__gelk_version":      {},
+			"metadata__gelk_backend_name": {},
+			"metadata__filter_raw":        {},
+		},
+	}
+	gCopyFields = map[string]map[[2]string]struct{}{
+		"github": {
+			[2]string{"origin", "repo_name"}: {},
+		},
 	}
 )
 
@@ -640,9 +660,157 @@ func handleMapping(idx string, mapping []byte, useDefault bool) (err error) {
 }
 
 func translate(in map[string]interface{}, ds string) (out map[string]interface{}) {
-	// FIXME
-	//fmt.Printf("object with %d props\n", len(in))
-	out = in
+	/*
+	   	gNoCopyFields = map[string]map[string]struct{}{
+	   		"github": {
+	   			"user_data_gender_acc": {},
+	   			"user_data_gender":     {},
+	         "repository_labels":    {},
+	         "project_1":            {},
+	   		},
+	   	}
+	*/
+	out = make(map[string]interface{})
+	noCopyFields := gNoCopyFields["github"]
+	for k, v := range in {
+		_, noCopy := noCopyFields[k]
+		if noCopy {
+			continue
+		}
+		out[k] = v
+	}
+	copyFields := gCopyFields["github"]
+	for data := range copyFields {
+		from := data[0]
+		to := data[1]
+		out[to], _ = in[from]
+	}
+	_, ok := in["project"]
+	if ok {
+		out["project_ts"] = time.Now().Unix()
+	}
+	githubRepo, _ := in["origin"].(string)
+	if strings.HasSuffix(githubRepo, ".git") {
+		githubRepo = githubRepo[:len(githubRepo)-4]
+	}
+	if strings.Contains(githubRepo, cGitHubURLRoot) {
+		githubRepo = strings.Replace(githubRepo, cGitHubURLRoot, "", -1)
+	}
+	out["github_repo"] = githubRepo
+	var repoShortName string
+	arr := strings.Split(githubRepo, "/")
+	if len(arr) > 1 {
+		repoShortName = arr[1]
+	}
+	out["repo_short_name"] = repoShortName
+	out["n_total_comments"] = 0
+	out["n_reactions"] = 0
+	out["n_comments"] = 0
+	out["n_commenters"] = 0
+	out["n_assignees"] = 0
+	// miss project_slug
+	/*
+	   -- p2o
+	             "labels": [],
+	   da-ds:
+	   -------------------------------------------
+	             "labels": [
+	             "item_type": "issue pull request",
+	             "issue_id": 592785418,
+	             "is_github_issue": 1,
+	             "id_in_repo": 2321,
+	             "id": "kubernetes-sigs/kustomize/issue/2321",
+	             "grimoire_creation_date": "2020-04-02T17:05:23Z",
+	             "github_repo": "kubernetes-sigs/kustomize",
+	             "created_at": "2020-04-02T17:05:23Z",
+	             "commenters": [
+	             "closed_at": "2020-04-22T04:28:28Z",
+	             "category": "issue",
+	             "body_analyzed": "Some `helm` syntax has changed from [v2 to v3 [0]](https://helm.sh/docs/topics/v2_v3_migration/) so `helm` invocations from the script needed to be adapted.\r\nIn order to support both versions, I have splitted the plugin in 2 different functions files for the affected invocations. I hope it looks good :)\r\n\r\n[0] https://helm.sh/docs/topics/v2_v3_migration/",
+	             "body": "Some `helm` syntax has changed from [v2 to v3 [0]](https://helm.sh/docs/topics/v2_v3_migration/) so `helm` invocations from the script needed to be adapted.\r\nIn order to support both versions, I have splitted the plugin in 2 different functions files for the affected invocations. I hope it looks good :)\r\n\r\n[0] https://helm.sh/docs/topics/v2_v3_migration/",
+	             "author_uuid": "e4881fe48831a2b2d834dc603f664322010b75ac",
+	             "author_user_name": "rcmorano",
+	             "author_org_name": "Stuart",
+	             "author_name": "Roberto C. Morano",
+	             "author_login": "rcmorano",
+	             "author_id": "e4881fe48831a2b2d834dc603f664322010b75ac",
+	             "author_domain": "none.guru",
+	             "author_bot": false,
+	             "assignees_data": [
+	             "assignee_org": "google",
+	             "assignee_name": "Jeff Regan",
+	             "assignee_login": "monopole",
+	             "assignee_location": "Mountain View CA",
+	             "assignee_geolocation": null,
+	             "assignee_domain": null,
+	             "assignee_data_uuid": "a417e7227b6d27a254b7d215a9374164b318c05e",
+	             "assignee_data_user_name": "monopole",
+	             "assignee_data_org_name": "Google",
+	             "assignee_data_name": "Jeff Regan",
+	             "assignee_data_multi_org_names": [
+	             "assignee_data_id": "a417e7227b6d27a254b7d215a9374164b318c05e",
+	             "assignee_data_domain": null,
+	             "assignee_data_bot": false,
+	               "size/M"
+	               "rcmorano",
+	               "pwittrock",
+	               "ok-to-test",
+	               "needs-rebase",
+	               "monopole"
+	               "lgtm",
+	               "k8s-ci-robot",
+	               "cncf-cla: yes",
+	               "approved",
+	               "aodinokov",
+	               "Stuart",
+	               "Google"
+	               "EMURGO"
+	   -------------------------------------------
+	   p2o:
+	   -------------------------------------------
+	             "item_type": "issue",
+	             "is_github_issue": 1,
+	             "id_in_repo": "40",
+	             "id": 550416630,
+	             "grimoire_creation_date": "2020-01-15T20:38:04+00:00",
+	             "github_repo": "finos/alloy",
+	             "created_at": "2020-01-15T20:38:04Z",
+	             "cm_type": "PROJECT",
+	             "cm_title": "Alloy",
+	             "cm_state": "INCUBATING",
+	             "cm_program": "TopLevel",
+	             "cm_formed": "2020-01-30",
+	             "cm_contributed": "2020-01-30",
+	             "closed_at": "2020-02-26T16:15:12Z",
+	             "author_uuid": "23a161cf1252c045e6e265fd37cacb4dbf283a6b",
+	             "author_user_name": "",
+	             "author_org_name": "FINOS",
+	             "author_name": "Aitana Myohl",
+	             "author_multi_org_names": [
+	             "author_id": "bcadc92e9ee995bf28cd2ccd5430198b5343306f",
+	             "author_gender_acc": 0,
+	             "author_gender": "Unknown",
+	             "author_domain": "finos.org",
+	             "author_bot": false,
+	             "assignee_org": "FINOS",
+	             "assignee_name": null,
+	             "assignee_login": "aitana16",
+	             "assignee_location": "New York",
+	             "assignee_geolocation": null,
+	             "assignee_domain": null,
+	             "assignee_data_uuid": "23a161cf1252c045e6e265fd37cacb4dbf283a6b",
+	             "assignee_data_user_name": "",
+	             "assignee_data_org_name": "FINOS",
+	             "assignee_data_name": "Aitana Myohl",
+	             "assignee_data_multi_org_names": [
+	             "assignee_data_id": "bcadc92e9ee995bf28cd2ccd5430198b5343306f",
+	             "assignee_data_gender_acc": 0,
+	             "assignee_data_gender": "Unknown",
+	             "assignee_data_domain": "finos.org",
+	             "assignee_data_bot": false,
+	               "FINOS"
+	   -------------------------------------------
+	*/
 	return
 }
 
@@ -713,7 +881,7 @@ func itemsFunc(dsType, idxFrom, idxTo, idField string, thrN int, items []interfa
 
 func convertGitHub(idxFrom, idxTo string) (err error) {
 	fatalOnError(handleMapping(idxTo, gMapping["github"], false))
-	err = forEachESItem("github", idxFrom, idxTo, "id", esBulkUploadFunc, itemsFunc)
+	err = forEachESItem("github", idxFrom, idxTo, "url_id", esBulkUploadFunc, itemsFunc)
 	return
 }
 

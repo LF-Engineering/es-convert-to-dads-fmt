@@ -39,8 +39,8 @@ if [ -z "${ID2}" ]
 then
   export ID2='kubernetes-sigs/kustomize/issues/2321'
 fi
-curl -s -H 'Content-Type: application/json' "${ES1_URL}/${IDX1}/_search" -d "{\"query\":{\"term\":{\"${KEY1}\":\"${ID1}\"}}}" | jq -rS '.' > dads.json
-curl -s -H 'Content-Type: application/json' "${ES2_URL}/${IDX2}/_search" -d "{\"query\":{\"term\":{\"${KEY2}\":\"${ID2}\"}}}" | jq -rS '.' > p2o.json
+curl -s -H 'Content-Type: application/json' "${ES1_URL}/${IDX1}/_search" -d "{\"query\":{\"term\":{\"${KEY1}\":\"${ID1}\"}}}" | jq -rS '.' > p2o.json
+curl -s -H 'Content-Type: application/json' "${ES2_URL}/${IDX2}/_search" -d "{\"query\":{\"term\":{\"${KEY2}\":\"${ID2}\"}}}" | jq -rS '.' > dads.json
 cat p2o.json | sort -r | uniq > tmp && mv tmp p2o.txt
 cat dads.json | sort -r | uniq > tmp && mv tmp dads.txt
 echo "da-ds:" > report.txt
