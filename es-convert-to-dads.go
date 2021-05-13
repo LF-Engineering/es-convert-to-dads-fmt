@@ -19,10 +19,15 @@ import (
 )
 
 var (
-	gESURL   string
-	gDSTypes = map[string]struct{}{
+	gESURL            string
+	gNotAnalyzeString = []byte(`{"dynamic_templates":[{"notanalyzed":{"match":"*","match_mapping_type":"string","mapping":{"type":"keyword"}}},{"formatdate":{"match":"*","match_mapping_type":"date","mapping":{"type":"date","format":"strict_date_optional_time||epoch_millis"}}}]}`)
+	gDSTypes          = map[string]struct{}{
 		"git":    {},
 		"github": {},
+	}
+	gMapping = map[string][]byte{
+		"github": []byte(`{"dynamic":true,"properties":{"metadata__updated_on":{"type":"date","format":"strict_date_optional_time||epoch_millis"},"merge_author_geolocation":{"type":"geo_point"},"assignee_geolocation":{"type":"geo_point"},"state":{"type":"keyword"},"user_geolocation":{"type":"geo_point"},"title_analyzed":{"type":"text","index":true},"body_analyzed":{"type":"text","index":true}},"dynamic_templates":[{"notanalyzed":{"match":"*","unmatch":"body","match_mapping_type":"string","mapping":{"type":"keyword"}}},{"formatdate":{"match":"*","match_mapping_type":"date","mapping":{"format":"strict_date_optional_time||epoch_millis","type":"date"}}}]}`),
+		"git":    []byte(`{"dynamic":true,"properties":{"file_data":{"type":"nested"},"authors_signed":{"type":"nested"},"authors_co_authored":{"type":"nested"},"authors_tested":{"type":"nested"},"authors_approved":{"type":"nested"},"authors_reviewed":{"type":"nested"},"authors_reported":{"type":"nested"},"authors_informed":{"type":"nested"},"authors_resolved":{"type":"nested"},"authors_influenced":{"type":"nested"},"author_name":{"type":"keyword"},"metadata__updated_on":{"type":"date","format":"strict_date_optional_time||epoch_millis"},"message_analyzed":{"type":"text","index":true}},"dynamic_templates":[{"notanalyzed":{"match":"*","unmatch":"message_analyzed","match_mapping_type":"string","mapping":{"type":"keyword"}}},{"formatdate":{"match":"*","match_mapping_type":"date","mapping":{"format":"strict_date_optional_time||epoch_millis","type":"date"}}}]}`),
 	}
 )
 
@@ -567,18 +572,83 @@ func esBulkUploadFunc(idxFrom, idxTo, itemID string, thrN int, docs, outDocs *[]
 	return
 }
 
+func handleMapping(idx string, mapping []byte) (err error) {
+	// Create index, ignore if exists (see status 400 is not in error statuses)
+	url := gESURL + "/" + idx
+	fmt.Printf("index: %s\n", url)
+	var (
+		result interface{}
+		status int
+	)
+	stringResult := func(r interface{}) string {
+		bR, ok := r.([]byte)
+		if ok {
+			return string(bR)
+		}
+		iR, ok := r.(map[string]interface{})
+		if ok {
+			return fmt.Sprintf("%+v", iR)
+		}
+		return fmt.Sprintf("%+v", r)
+	}
+	result, status, _, _, _, err = request(
+		url+"?wait_for_active_shards=all",
+		"PUT",
+		nil,                                 // headers
+		[]byte{},                            // payload
+		[]string{},                          // cookies
+		nil,                                 // JSON statuses
+		map[[2]int]struct{}{{401, 599}: {}}, // error statuses: 401-599
+		nil,                                 // OK statuses
+	)
+	fmt.Printf("index %s created: status=%d, result: %+v\n", url, status, stringResult(result))
+	fatalOnError(err)
+	// DS specific raw index mapping
+	url += "/_mapping"
+	result, status, _, _, _, err = request(
+		url,
+		"PUT",
+		map[string]string{"Content-Type": "application/json"},
+		mapping,
+		[]string{},
+		nil,
+		nil,
+		map[[2]int]struct{}{{200, 200}: {}},
+	)
+	fmt.Printf("index mapping %s -> status=%d, result: %+v\n", url, status, stringResult(result))
+	fmt.Printf("mapping: %+v\n", string(mapping))
+	fatalOnError(err)
+	// Global not analyze string mapping
+	result, status, _, _, _, err = request(
+		url,
+		"PUT",
+		map[string]string{"Content-Type": "application/json"},
+		gNotAnalyzeString,
+		[]string{},
+		nil,
+		nil,
+		map[[2]int]struct{}{{200, 200}: {}},
+	)
+	fmt.Printf("index not analyze string mapping %s -> status=%d, result: %+v\n", url, status, stringResult(result))
+	fatalOnError(err)
+	return
+}
+
 func itemsFunc(idxFrom, idxTo, idField string, thrN int, items []interface{}, docs *[]interface{}) (err error) {
 	fmt.Printf("%s -> %s: %d items, %d threads\n", idxFrom, idxTo, len(items), thrN)
 	return
 }
 
 func convertGitHub(idxFrom, idxTo string) (err error) {
+	fatalOnError(handleMapping(idxTo, gMapping["github"]))
 	err = forEachESItem(idxFrom, idxTo, "id", esBulkUploadFunc, itemsFunc)
 	return
 }
 
 func convertGit(idxFrom, idxTo string) (err error) {
-	return fmt.Errorf("git is not implemented yet")
+	fatalOnError(handleMapping(idxTo, gMapping["git"]))
+	err = forEachESItem(idxFrom, idxTo, "uuid", esBulkUploadFunc, itemsFunc)
+	return
 }
 
 func convert(dsType, idxFrom, idxTo string) (err error) {
