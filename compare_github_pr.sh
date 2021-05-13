@@ -6,7 +6,7 @@
 # KEY1=url_id
 # KEY2=url_id
 # ID1='finos/alloy/pull/97'
-# ID2='kubernetes-sigs/kustomize/issues/2321'
+# ID2='kubernetes/org/pull/2134'
 if [ -z "${ES1_URL}" ]
 then
   export ES1_URL="`cat ES_URL.prod.secret`"
@@ -37,10 +37,10 @@ then
 fi
 if [ -z "${ID2}" ] 
 then
-  export ID2='kubernetes-sigs/kustomize/issues/2321'
+  export ID2='kubernetes/org/pull/2134'
 fi
 curl -s -H 'Content-Type: application/json' "${ES1_URL}/${IDX1}/_search" -d "{\"query\":{\"term\":{\"${KEY1}\":\"${ID1}\"}}}" | jq -rS '.' > p2o.json
-curl -s -H 'Content-Type: application/json' "${ES2_URL}/${IDX2}/_search" -d "{\"query\":{\"term\":{\"${KEY2}\":\"${ID2}\"}}}" | jq -rS '.' > dads.json
+curl -s -H 'Content-Type: application/json' "${ES2_URL}/${IDX2}/_search" -d "{\"query\":{\"bool\":{\"must\":[{\"term\":{\"${KEY2}\":\"${ID2}\"}},{\"term\":{\"type\":\"pull_request\"}}]}}}" | jq -rS '.' > dads.json
 cat p2o.json | sort -r | uniq > tmp && mv tmp p2o.txt
 cat dads.json | sort -r | uniq > tmp && mv tmp dads.txt
 echo "da-ds:" > report.txt

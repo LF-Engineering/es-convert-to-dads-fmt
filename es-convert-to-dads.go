@@ -26,15 +26,32 @@ var (
 	gESURL            string
 	gNotAnalyzeString = []byte(`{"dynamic_templates":[{"notanalyzed":{"match":"*","match_mapping_type":"string","mapping":{"type":"keyword"}}},{"formatdate":{"match":"*","match_mapping_type":"date","mapping":{"type":"date","format":"strict_date_optional_time||epoch_millis"}}}]}`)
 	gDSTypes          = map[string]struct{}{
-		"git":    {},
-		"github": {},
+		"git":                 {},
+		"github/issue":        {},
+		"github/pull_request": {},
 	}
 	gMapping = map[string][]byte{
-		"github": []byte(`{"dynamic":true,"properties":{"metadata__updated_on":{"type":"date","format":"strict_date_optional_time||epoch_millis"},"merge_author_geolocation":{"type":"geo_point"},"assignee_geolocation":{"type":"geo_point"},"state":{"type":"keyword"},"user_geolocation":{"type":"geo_point"},"title_analyzed":{"type":"text","index":true},"body_analyzed":{"type":"text","index":true}},"dynamic_templates":[{"notanalyzed":{"match":"*","unmatch":"body","match_mapping_type":"string","mapping":{"type":"keyword"}}},{"formatdate":{"match":"*","match_mapping_type":"date","mapping":{"format":"strict_date_optional_time||epoch_millis","type":"date"}}}]}`),
-		"git":    []byte(`{"dynamic":true,"properties":{"file_data":{"type":"nested"},"authors_signed":{"type":"nested"},"authors_co_authored":{"type":"nested"},"authors_tested":{"type":"nested"},"authors_approved":{"type":"nested"},"authors_reviewed":{"type":"nested"},"authors_reported":{"type":"nested"},"authors_informed":{"type":"nested"},"authors_resolved":{"type":"nested"},"authors_influenced":{"type":"nested"},"author_name":{"type":"keyword"},"metadata__updated_on":{"type":"date","format":"strict_date_optional_time||epoch_millis"},"message_analyzed":{"type":"text","index":true}},"dynamic_templates":[{"notanalyzed":{"match":"*","unmatch":"message_analyzed","match_mapping_type":"string","mapping":{"type":"keyword"}}},{"formatdate":{"match":"*","match_mapping_type":"date","mapping":{"format":"strict_date_optional_time||epoch_millis","type":"date"}}}]}`),
+		"github/issue":        []byte(`{"dynamic":true,"properties":{"metadata__updated_on":{"type":"date","format":"strict_date_optional_time||epoch_millis"},"merge_author_geolocation":{"type":"geo_point"},"assignee_geolocation":{"type":"geo_point"},"state":{"type":"keyword"},"user_geolocation":{"type":"geo_point"},"title_analyzed":{"type":"text","index":true},"body_analyzed":{"type":"text","index":true}},"dynamic_templates":[{"notanalyzed":{"match":"*","unmatch":"body","match_mapping_type":"string","mapping":{"type":"keyword"}}},{"formatdate":{"match":"*","match_mapping_type":"date","mapping":{"format":"strict_date_optional_time||epoch_millis","type":"date"}}}]}`),
+		"github/pull_request": []byte(`{"dynamic":true,"properties":{"metadata__updated_on":{"type":"date","format":"strict_date_optional_time||epoch_millis"},"merge_author_geolocation":{"type":"geo_point"},"assignee_geolocation":{"type":"geo_point"},"state":{"type":"keyword"},"user_geolocation":{"type":"geo_point"},"title_analyzed":{"type":"text","index":true},"body_analyzed":{"type":"text","index":true}},"dynamic_templates":[{"notanalyzed":{"match":"*","unmatch":"body","match_mapping_type":"string","mapping":{"type":"keyword"}}},{"formatdate":{"match":"*","match_mapping_type":"date","mapping":{"format":"strict_date_optional_time||epoch_millis","type":"date"}}}]}`),
+		"git":                 []byte(`{"dynamic":true,"properties":{"file_data":{"type":"nested"},"authors_signed":{"type":"nested"},"authors_co_authored":{"type":"nested"},"authors_tested":{"type":"nested"},"authors_approved":{"type":"nested"},"authors_reviewed":{"type":"nested"},"authors_reported":{"type":"nested"},"authors_informed":{"type":"nested"},"authors_resolved":{"type":"nested"},"authors_influenced":{"type":"nested"},"author_name":{"type":"keyword"},"metadata__updated_on":{"type":"date","format":"strict_date_optional_time||epoch_millis"},"message_analyzed":{"type":"text","index":true}},"dynamic_templates":[{"notanalyzed":{"match":"*","unmatch":"message_analyzed","match_mapping_type":"string","mapping":{"type":"keyword"}}},{"formatdate":{"match":"*","match_mapping_type":"date","mapping":{"format":"strict_date_optional_time||epoch_millis","type":"date"}}}]}`),
 	}
 	gNoCopyFields = map[string]map[string]struct{}{
-		"github": {
+		"github/issue": {
+			"user_data_gender_acc":        {},
+			"user_data_gender":            {},
+			"repository_labels":           {},
+			"project_1":                   {},
+			"metadata__gelk_version":      {},
+			"metadata__gelk_backend_name": {},
+			"metadata__filter_raw":        {},
+			"item_type":                   {},
+			"id":                          {},
+			"author_gender_acc":           {},
+			"author_gender":               {},
+			"assignee_data_gender_acc":    {},
+			"assignee_data_gender":        {},
+		},
+		"github/pull_request": {
 			"user_data_gender_acc":        {},
 			"user_data_gender":            {},
 			"repository_labels":           {},
@@ -51,7 +68,11 @@ var (
 		},
 	}
 	gCopyFields = map[string]map[[2]string]struct{}{
-		"github": {
+		"github/issue": {
+			[2]string{"origin", "repo_name"}: {},
+			[2]string{"id", "issue_id"}:      {},
+		},
+		"github/pull_request": {
 			[2]string{"origin", "repo_name"}: {},
 			[2]string{"id", "issue_id"}:      {},
 		},
@@ -666,17 +687,19 @@ func handleMapping(idx string, mapping []byte, useDefault bool) (err error) {
 	return
 }
 func translate(in map[string]interface{}, ds string) (map[string]interface{}, error) {
-  switch ds {
-  case "github":
-    return translateGithub(in)
-  default:
-    return nil, fmt.Errorf("translate for %s ds type not implemented", ds)
-  }
+	switch ds {
+	case "github/issue":
+		return translateGithubIssue(in)
+	case "github/pull":
+		return translateGithubPullRequest(in)
+	default:
+		return nil, fmt.Errorf("translate for %s ds type not implemented", ds)
+	}
 }
 
-func translateGithub(in map[string]interface{}) (out map[string]interface{}, err error) {
+func translateGithubIssue(in map[string]interface{}) (out map[string]interface{}, err error) {
 	out = make(map[string]interface{})
-	noCopyFields := gNoCopyFields["github"]
+	noCopyFields := gNoCopyFields["github/issue"]
 	for k, v := range in {
 		_, noCopy := noCopyFields[k]
 		if noCopy {
@@ -684,7 +707,7 @@ func translateGithub(in map[string]interface{}) (out map[string]interface{}, err
 		}
 		out[k] = v
 	}
-	copyFields := gCopyFields["github"]
+	copyFields := gCopyFields["github/issue"]
 	for data := range copyFields {
 		from := data[0]
 		to := data[1]
@@ -730,6 +753,218 @@ func translateGithub(in map[string]interface{}) (out map[string]interface{}, err
 	return
 }
 
+func translateGithubPullRequest(in map[string]interface{}) (out map[string]interface{}, err error) {
+	out = make(map[string]interface{})
+	noCopyFields := gNoCopyFields["github/issue"]
+	for k, v := range in {
+		_, noCopy := noCopyFields[k]
+		if noCopy {
+			continue
+		}
+		out[k] = v
+	}
+	copyFields := gCopyFields["github/issue"]
+	for data := range copyFields {
+		from := data[0]
+		to := data[1]
+		out[to], _ = in[from]
+	}
+	/*
+		_, ok := in["project"]
+		if ok {
+			out["project_ts"] = time.Now().Unix()
+		}
+		githubRepo, _ := in["origin"].(string)
+		if strings.HasSuffix(githubRepo, ".git") {
+			githubRepo = githubRepo[:len(githubRepo)-4]
+		}
+		if strings.Contains(githubRepo, cGitHubURLRoot) {
+			githubRepo = strings.Replace(githubRepo, cGitHubURLRoot, "", -1)
+		}
+		out["github_repo"] = githubRepo
+		var repoShortName string
+		arr := strings.Split(githubRepo, "/")
+		if len(arr) > 1 {
+			repoShortName = arr[1]
+		}
+		out["repo_short_name"] = repoShortName
+		out["n_total_comments"] = 0
+		out["n_reactions"] = 0
+		out["n_comments"] = 0
+		out["n_commenters"] = 0
+		out["n_assignees"] = 0
+		out["type"] = "issue"
+		pr, _ := in["pull_request"]
+		if pr.(bool) {
+			out["item_type"] = "issue pull request"
+		} else {
+			out["item_type"] = "issue"
+		}
+		number, _ := in["id_in_repo"]
+		out["id"] = githubRepo + "/issue/" + number.(string)
+		out["commenters"] = []interface{}{}
+		out["assignees_data"] = []interface{}{}
+		out["category"] = "issue"
+		// p2o doesn't have it
+		out["project_slug"] = nil
+	*/
+/*
+da-ds:
+-------------------------------------------
+          "title_analyzed": "Addition of meeting minutes/action items from WG held on 16Apr",
+          "title": "Addition of meeting minutes/action items from WG held on 16Apr",
+-------------------------------------------
+          "type": "issue",
+          "title_analyzed": "Added support for helm v3 to ChartInflator plugin",
+          "title": "Added support for helm v3 to ChartInflator plugin",
+          "time_to_first_attention": 9.259259259259259e-05,
+          "time_to_close_days": 19.474363425925926,
+          "time_open_days": 19.474363425925926,
+          "tag": "https://github.com/kubernetes-sigs/kustomize",
+          "state": "closed",
+          "repository": "https://github.com/kubernetes-sigs/kustomize",
+          "repo_short_name": "kustomize",
+          "repo_name": "https://github.com/kubernetes-sigs/kustomize",
+          "pull_request": true,
+          "project_ts": 1620877386,
+          "project_slug": "cncf/k8s",
+          "project": "Kubernetes",
+          "origin": "https://github.com/kubernetes-sigs/kustomize",
+          "offset": null,
+          "n_total_comments": 12,
+          "n_reactions": 0,
+          "n_comments": 12,
+          "n_commenters": 5,
+          "n_assignees": 1,
+          "metadata__updated_on": "2020-04-02T17:05:23Z",
+          "metadata__timestamp": "2021-05-13T03:21:21.517474+00:00",
+          "metadata__enriched_on": "2021-05-13T03:41:22.494726822Z",
+          "labels": [
+          "item_type": "issue pull request",
+          "issue_id": 592785418,
+          "is_github_issue": 1,
+          "id_in_repo": 2321,
+          "id": "kubernetes-sigs/kustomize/issue/2321",
+          "grimoire_creation_date": "2020-04-02T17:05:23Z",
+          "github_repo": "kubernetes-sigs/kustomize",
+          "created_at": "2020-04-02T17:05:23Z",
+          "commenters": [
+          "closed_at": "2020-04-22T04:28:28Z",
+          "category": "issue",
+          "body_analyzed": "Some `helm` syntax has changed from [v2 to v3 [0]](https://helm.sh/docs/topics/v2_v3_migration/) so `helm` invocations from the script needed to be adapted.\r\nIn order to support both versions, I have splitted the plugin in 2 different functions files for the affected invocations. I hope it looks good :)\r\n\r\n[0] https://helm.sh/docs/topics/v2_v3_migration/",
+          "body": "Some `helm` syntax has changed from [v2 to v3 [0]](https://helm.sh/docs/topics/v2_v3_migration/) so `helm` invocations from the script needed to be adapted.\r\nIn order to support both versions, I have splitted the plugin in 2 different functions files for the affected invocations. I hope it looks good :)\r\n\r\n[0] https://helm.sh/docs/topics/v2_v3_migration/",
+          "author_uuid": "e4881fe48831a2b2d834dc603f664322010b75ac",
+          "author_user_name": "rcmorano",
+          "author_org_name": "Stuart",
+          "author_name": "Roberto C. Morano",
+          "author_login": "rcmorano",
+          "author_id": "e4881fe48831a2b2d834dc603f664322010b75ac",
+          "author_domain": "none.guru",
+          "author_bot": false,
+          "assignees_data": [
+          "assignee_org": "google",
+          "assignee_name": "Jeff Regan",
+          "assignee_login": "monopole",
+          "assignee_location": "Mountain View CA",
+          "assignee_geolocation": null,
+          "assignee_domain": null,
+          "assignee_data_uuid": "a417e7227b6d27a254b7d215a9374164b318c05e",
+          "assignee_data_user_name": "monopole",
+          "assignee_data_org_name": "Google",
+          "assignee_data_name": "Jeff Regan",
+          "assignee_data_multi_org_names": [
+          "assignee_data_id": "a417e7227b6d27a254b7d215a9374164b318c05e",
+          "assignee_data_domain": null,
+          "assignee_data_bot": false,
+            "size/M"
+            "rcmorano",
+            "pwittrock",
+            "ok-to-test",
+            "needs-rebase",
+            "monopole"
+            "lgtm",
+            "k8s-ci-robot",
+            "cncf-cla: yes",
+            "approved",
+            "aodinokov",
+            "Stuart",
+            "Google"
+            "EMURGO"
+-------------------------------------------
+p2o:
+-------------------------------------------
+          "time_to_merge_request_response": null,
+          "time_to_close_days": 0,
+          "time_open_days": 0,
+          "tag": "https://github.com/finos/alloy",
+          "state": "closed",
+          "repository_labels": [],
+          "repository": "https://github.com/finos/alloy",
+          "pull_request": true,
+          "project_1": "Alloy",
+          "project": "Alloy",
+          "origin": "https://github.com/finos/alloy",
+          "offset": null,
+          "num_review_comments": 0,
+          "metadata__updated_on": "2020-04-21T18:41:57+00:00",
+          "metadata__timestamp": "2020-06-20T13:27:21.849109+00:00",
+          "metadata__gelk_version": "0.80.0",
+          "metadata__gelk_backend_name": "GitHubEnrich",
+          "metadata__filter_raw": null,
+          "metadata__enriched_on": "2020-09-30T08:50:40.143465+00:00",
+          "merged_by_data_uuid": "23a161cf1252c045e6e265fd37cacb4dbf283a6b",
+          "merged_by_data_user_name": "",
+          "merged_by_data_org_name": "FINOS",
+          "merged_by_data_name": "Aitana Myohl",
+          "merged_by_data_multi_org_names": [
+          "merged_by_data_id": "bcadc92e9ee995bf28cd2ccd5430198b5343306f",
+          "merged_by_data_gender_acc": 0,
+          "merged_by_data_gender": "Unknown",
+          "merged_by_data_domain": "finos.org",
+          "merged_by_data_bot": false,
+          "merged_at": "2020-04-21T18:41:57Z",
+          "merged": true,
+          "merge_author_org": "FINOS",
+          "merge_author_name": null,
+          "merge_author_login": "aitana16",
+          "merge_author_location": "New York",
+          "merge_author_geolocation": null,
+          "merge_author_domain": null,
+          "labels": [
+          "item_type": "pull request",
+          "is_github_pull_request": 1,
+          "id_in_repo": "97",
+          "id": 406838728,
+          "grimoire_creation_date": "2020-04-21T18:41:07+00:00",
+          "github_repo": "finos/alloy",
+          "forks": 18,
+          "created_at": "2020-04-21T18:41:07Z",
+          "code_merge_duration": 0,
+          "cm_type": "PROJECT",
+          "cm_title": "Alloy",
+          "cm_state": "INCUBATING",
+          "cm_program": "TopLevel",
+          "cm_formed": "2020-01-30",
+          "cm_contributed": "2020-01-30",
+          "closed_at": "2020-04-21T18:41:57Z",
+          "author_uuid": "7b216ef73cf46e60efca84e9d5ebea75728c4d08",
+          "author_user_name": "",
+          "author_org_name": "Goldman Sachs",
+          "author_name": "Vijayesh Chandel",
+          "author_multi_org_names": [
+          "author_id": "7b216ef73cf46e60efca84e9d5ebea75728c4d08",
+          "author_gender_acc": 0,
+          "author_gender": "Unknown",
+          "author_domain": "",
+          "author_bot": false,
+            "cla-present"
+            "Goldman Sachs"
+            "FINOS"
+-------------------------------------------
+*/
+	return
+}
+
 func itemsFunc(dsType, idxFrom, idxTo, idField string, thrN int, items []interface{}, docs *[]interface{}) (err error) {
 	fmt.Printf("%s(%s): %s -> %s: %d items, %d threads\n", dsType, idField, idxFrom, idxTo, len(items), thrN)
 	var (
@@ -753,7 +988,7 @@ func itemsFunc(dsType, idxFrom, idxTo, idField string, thrN int, items []interfa
 		}
 		in, _ := doc.(map[string]interface{})
 		out, e := translate(in, dsType)
-    fatalOnError(e)
+		fatalOnError(e)
 		if thrN > 1 {
 			mtx.Lock()
 		}
@@ -796,9 +1031,15 @@ func itemsFunc(dsType, idxFrom, idxTo, idField string, thrN int, items []interfa
 	return
 }
 
-func convertGitHub(idxFrom, idxTo string) (err error) {
-	fatalOnError(handleMapping(idxTo, gMapping["github"], false))
-	err = forEachESItem("github", idxFrom, idxTo, "url_id", esBulkUploadFunc, itemsFunc)
+func convertGitHubIssue(idxFrom, idxTo string) (err error) {
+	fatalOnError(handleMapping(idxTo, gMapping["github/issue"], false))
+	err = forEachESItem("github/issue", idxFrom, idxTo, "url_id", esBulkUploadFunc, itemsFunc)
+	return
+}
+
+func convertGitHubPullRequest(idxFrom, idxTo string) (err error) {
+	fatalOnError(handleMapping(idxTo, gMapping["github/pull_request"], false))
+	err = forEachESItem("github/pull_request", idxFrom, idxTo, "url_id", esBulkUploadFunc, itemsFunc)
 	return
 }
 
@@ -812,8 +1053,10 @@ func convert(dsType, idxFrom, idxTo string) (err error) {
 	switch dsType {
 	case "git":
 		err = convertGit(idxFrom, idxTo)
-	case "github":
-		err = convertGitHub(idxFrom, idxTo)
+	case "github/issue":
+		err = convertGitHubIssue(idxFrom, idxTo)
+	case "github/pull_request":
+		err = convertGitHubPullRequest(idxFrom, idxTo)
 	default:
 		err = fmt.Errorf("%s support not implemented", dsType)
 	}
