@@ -1,10 +1,21 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"io/ioutil"
+	"net/http"
 	"os"
+	"runtime"
 	"runtime/debug"
+	"strconv"
+	"strings"
+	"sync"
 	"time"
+
+	urlLib "net/url"
+
+	jsoniter "github.com/json-iterator/go"
 )
 
 var (
@@ -29,8 +40,541 @@ func fatalf(f string, a ...interface{}) {
 	fatalOnError(fmt.Errorf(f, a...))
 }
 
+func getThreadsNum() int {
+	st := os.Getenv("NCPUS")
+	if st == "" {
+		return runtime.NumCPU()
+	}
+	n, err := strconv.Atoi(st)
+	if err != nil || n <= 0 {
+		return runtime.NumCPU()
+	}
+	runtime.GOMAXPROCS(n)
+	return n
+}
+
+func bytesToStringTrunc(data []byte, maxLen int, addLenInfo bool) (str string) {
+	lenInfo := ""
+	if addLenInfo {
+		lenInfo = "(" + strconv.Itoa(len(data)) + "): "
+	}
+	if len(data) <= maxLen {
+		return lenInfo + string(data)
+	}
+	half := maxLen >> 1
+	str = lenInfo + string(data[:half]) + "(...)" + string(data[len(data)-half:])
+	return
+}
+
+func interfaceToStringTrunc(iface interface{}, maxLen int, addLenInfo bool) (str string) {
+	data := fmt.Sprintf("%+v", iface)
+	lenInfo := ""
+	if addLenInfo {
+		lenInfo = "(" + strconv.Itoa(len(data)) + "): "
+	}
+	if len(data) <= maxLen {
+		return lenInfo + data
+	}
+	half := maxLen >> 1
+	str = "(" + strconv.Itoa(len(data)) + "): " + data[:half] + "(...)" + data[len(data)-half:]
+	return
+}
+
+func stringToCookie(s string) (c *http.Cookie) {
+	ary := strings.Split(s, "===")
+	if len(ary) < 2 {
+		return
+	}
+	c = &http.Cookie{Name: ary[0], Value: ary[1]}
+	return
+}
+
+func cookieToString(c *http.Cookie) (s string) {
+	if c.Name == "" && c.Value == "" {
+		return
+	}
+	s = c.Name + "===" + c.Value
+	return
+}
+
+func keysOnly(i interface{}) (o map[string]interface{}) {
+	if i == nil {
+		return
+	}
+	is, ok := i.(map[string]interface{})
+	if !ok {
+		return
+	}
+	o = make(map[string]interface{})
+	for k, v := range is {
+		o[k] = keysOnly(v)
+	}
+	return
+}
+
+func dumpKeys(i interface{}) string {
+	return strings.Replace(fmt.Sprintf("%v", keysOnly(i)), "map[]", "", -1)
+}
+
+func request(
+	url, method string,
+	headers map[string]string,
+	payload []byte,
+	cookies []string,
+	jsonStatuses, errorStatuses, okStatuses map[[2]int]struct{},
+) (result interface{}, status int, isJSON bool, outCookies []string, outHeaders map[string][]string, err error) {
+	var (
+		payloadBody *bytes.Reader
+		req         *http.Request
+	)
+	if len(payload) > 0 {
+		payloadBody = bytes.NewReader(payload)
+		req, err = http.NewRequest(method, url, payloadBody)
+	} else {
+		req, err = http.NewRequest(method, url, nil)
+	}
+	if err != nil {
+		sPayload := bytesToStringTrunc(payload, 1024, true)
+		err = fmt.Errorf("new request error:%+v for method:%s url:%s payload:%s", err, method, url, sPayload)
+		return
+	}
+	for _, cookieStr := range cookies {
+		cookie := stringToCookie(cookieStr)
+		req.AddCookie(cookie)
+	}
+	for header, value := range headers {
+		req.Header.Set(header, value)
+	}
+	var resp *http.Response
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		sPayload := bytesToStringTrunc(payload, 1024, true)
+		err = fmt.Errorf("do request error:%+v for method:%s url:%s headers:%v payload:%s", err, method, url, headers, sPayload)
+		if strings.Contains(err.Error(), "socket: too many open files") {
+			fmt.Printf("too many open socets detected, sleeping for 3 seconds\n")
+			time.Sleep(time.Duration(3) * time.Second)
+		}
+		return
+	}
+	var body []byte
+	body, err = ioutil.ReadAll(resp.Body)
+	if err != nil {
+		sPayload := bytesToStringTrunc(payload, 1024, true)
+		err = fmt.Errorf("read request body error:%+v for method:%s url:%s headers:%v payload:%s", err, method, url, headers, sPayload)
+		return
+	}
+	_ = resp.Body.Close()
+	for _, cookie := range resp.Cookies() {
+		outCookies = append(outCookies, cookieToString(cookie))
+	}
+	outHeaders = resp.Header
+	status = resp.StatusCode
+	hit := false
+	for r := range jsonStatuses {
+		if status >= r[0] && status <= r[1] {
+			hit = true
+			break
+		}
+	}
+	if hit {
+		err = jsoniter.Unmarshal(body, &result)
+		if err != nil {
+			sPayload := bytesToStringTrunc(payload, 1024, true)
+			sBody := bytesToStringTrunc(body, 1024, true)
+			err = fmt.Errorf("unmarshall request error:%+v for method:%s url:%s headers:%v status:%d payload:%s body:%s", err, method, url, headers, status, sPayload, sBody)
+			return
+		}
+		isJSON = true
+	} else {
+		result = body
+	}
+	hit = false
+	for r := range errorStatuses {
+		if status >= r[0] && status <= r[1] {
+			hit = true
+			break
+		}
+	}
+	if hit {
+		sPayload := bytesToStringTrunc(payload, 1024, true)
+		sBody := bytesToStringTrunc(body, 1024, true)
+		var sResult string
+		bResult, bOK := result.([]byte)
+		if bOK {
+			sResult = bytesToStringTrunc(bResult, 1024, true)
+		} else {
+			sResult = interfaceToStringTrunc(result, 1024, true)
+		}
+		err = fmt.Errorf("status error:%+v for method:%s url:%s headers:%v status:%d payload:%s body:%s result:%+v", err, method, url, headers, status, sPayload, sBody, sResult)
+	}
+	if len(okStatuses) > 0 {
+		hit = false
+		for r := range okStatuses {
+			if status >= r[0] && status <= r[1] {
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			sPayload := bytesToStringTrunc(payload, 1024, true)
+			sBody := bytesToStringTrunc(body, 1024, true)
+			var sResult string
+			bResult, bOK := result.([]byte)
+			if bOK {
+				sResult = bytesToStringTrunc(bResult, 1024, true)
+			} else {
+				sResult = interfaceToStringTrunc(result, 1024, true)
+			}
+			err = fmt.Errorf("status not success:%+v for method:%s url:%s headers:%v status:%d payload:%s body:%s result:%+v", err, method, url, headers, status, sPayload, sBody, sResult)
+		}
+	}
+	return
+}
+
+func forEachESItem(
+	idxFrom, idxTo, idField string,
+	ufunct func(string, string, string, int, *[]interface{}, *[]interface{}, bool) error,
+	uitems func(string, string, string, int, []interface{}, *[]interface{}) error,
+) (err error) {
+	packSize := 1000
+	var (
+		scroll *string
+		res    interface{}
+		status int
+	)
+	headers := map[string]string{"Content-Type": "application/json"}
+	attemptAt := time.Now()
+	total := 0
+	// Defer free scroll
+	defer func() {
+		if scroll == nil {
+			return
+		}
+		url := gESURL + "/_search/scroll"
+		payload := []byte(`{"scroll_id":"` + *scroll + `"}`)
+		_, _, _, _, _, err := request(
+			url,
+			"DELETE",
+			headers,
+			payload,
+			[]string{},
+			nil,
+			nil,                                 // Error statuses
+			map[[2]int]struct{}{{200, 200}: {}}, // OK statuses
+		)
+		if err != nil {
+			fmt.Printf("Error releasing scroll %s: %+v, ignored\n", *scroll, err)
+			err = nil
+		}
+	}()
+	thrN := getThreadsNum()
+	fmt.Printf("Using %d threads\n", thrN)
+	nThreads := 0
+	var (
+		mtx *sync.Mutex
+		ch  chan error
+	)
+	docs := []interface{}{}
+	outDocs := []interface{}{}
+	if thrN > 1 {
+		mtx = &sync.Mutex{}
+		ch = make(chan error)
+	}
+	funct := func(c chan error, last bool) (e error) {
+		defer func() {
+			if thrN > 1 {
+				mtx.Unlock()
+			}
+			if c != nil {
+				c <- e
+			}
+		}()
+		if thrN > 1 {
+			mtx.Lock()
+		}
+		e = ufunct(idxFrom, idxTo, idField, thrN, &docs, &outDocs, last)
+		return
+	}
+	for {
+		var (
+			url     string
+			payload []byte
+		)
+		if scroll == nil {
+			url = gESURL + "/" + idxFrom + "/_search?scroll=15m&size=1000"
+		} else {
+			url = gESURL + "/_search/scroll"
+			payload = []byte(`{"scroll":"15m","scroll_id":"` + *scroll + `"}`)
+		}
+		res, status, _, _, _, err = request(
+			url,
+			"POST",
+			headers,
+			payload,
+			[]string{},
+			map[[2]int]struct{}{{200, 200}: {}}, // JSON statuses
+			nil,                                 // Error statuses
+			map[[2]int]struct{}{{200, 200}: {}, {404, 404}: {}, {500, 500}: {}}, // OK statuses
+		)
+		fatalOnError(err)
+		if status == 404 {
+			if scroll != nil && strings.Contains(string(res.([]byte)), "No search context found for id") {
+				fmt.Printf("scroll %s probably expired, retrying\n", *scroll)
+				scroll = nil
+				err = nil
+				continue
+			}
+			fatalf("got status 404 but not because of scroll context expiration:\n%s\n", string(res.([]byte)))
+		}
+		if status == 500 {
+			if scroll == nil && status == 500 && strings.Contains(string(res.([]byte)), "Trying to create too many scroll contexts") {
+				time.Sleep(5)
+				now := time.Now()
+				elapsed := now.Sub(attemptAt)
+				fmt.Printf("%d retrying scroll, first attempt at %+v, elapsed %+v/%ds\n", len(res.(map[string]interface{})), attemptAt, elapsed, 600)
+				if elapsed.Seconds() > 600 {
+					fatalf("Tried to acquire scroll too many times, first attempt at %v, elapsed %v/%ds", attemptAt, elapsed, 600)
+				}
+				continue
+			}
+			fatalf("got status 500 but not because of too many scrolls:\n%s\n", string(res.([]byte)))
+		}
+		sScroll, ok := res.(map[string]interface{})["_scroll_id"].(string)
+		if !ok {
+			err = fmt.Errorf("Missing _scroll_id in the response %+v", dumpKeys(res))
+			return
+		}
+		scroll = &sScroll
+		items, ok := res.(map[string]interface{})["hits"].(map[string]interface{})["hits"].([]interface{})
+		if !ok {
+			err = fmt.Errorf("Missing hits.hits in the response %+v", dumpKeys(res))
+			return
+		}
+		nItems := len(items)
+		if nItems == 0 {
+			break
+		}
+		if thrN > 1 {
+			mtx.Lock()
+		}
+		err = uitems(idxFrom, idxTo, idField, thrN, items, &docs)
+		if err != nil {
+			return
+		}
+		nDocs := len(docs)
+		if nDocs >= packSize {
+			if thrN > 1 {
+				go func() {
+					_ = funct(ch, false)
+				}()
+				nThreads++
+				if nThreads == thrN {
+					err = <-ch
+					if err != nil {
+						return
+					}
+					nThreads--
+				}
+			} else {
+				err = funct(nil, false)
+				if err != nil {
+					return
+				}
+			}
+		}
+		if thrN > 1 {
+			mtx.Unlock()
+		}
+		total += nItems
+	}
+	if thrN > 1 {
+		mtx.Lock()
+	}
+	if thrN > 1 {
+		go func() {
+			_ = funct(ch, true)
+		}()
+		nThreads++
+		if nThreads == thrN {
+			err = <-ch
+			if err != nil {
+				return
+			}
+			nThreads--
+		}
+	} else {
+		err = funct(nil, true)
+		if err != nil {
+			return
+		}
+	}
+	if thrN > 1 {
+		mtx.Unlock()
+	}
+	for thrN > 1 && nThreads > 0 {
+		err = <-ch
+		nThreads--
+		if err != nil {
+			return
+		}
+	}
+	fmt.Printf("Total number of items processed: %d\n", total)
+	return
+}
+
+func sendToElastic(idxName, key string, items []interface{}) (err error) {
+	fmt.Printf("%s(key=%s) ES bulk uploading %d items\n", idxName, key, len(items))
+	url := gESURL + "/" + idxName + "/_bulk?refresh=true"
+	// {"index":{"_id":"uuid"}}
+	payloads := []byte{}
+	newLine := []byte("\n")
+	var (
+		doc    []byte
+		hdr    []byte
+		status int
+	)
+	for _, item := range items {
+		doc, err = jsoniter.Marshal(item)
+		if err != nil {
+			return
+		}
+		id, ok := item.(map[string]interface{})[key].(string)
+		if !ok {
+			err = fmt.Errorf("missing %s property in %+v", key, dumpKeys(item))
+			return
+		}
+		hdr = []byte(`{"index":{"_id":"` + id + "\"}}\n")
+		payloads = append(payloads, hdr...)
+		payloads = append(payloads, doc...)
+		payloads = append(payloads, newLine...)
+	}
+	var result interface{}
+	result, status, _, _, _, err = request(
+		url,
+		"POST",
+		map[string]string{"Content-Type": "application/x-ndjson"},
+		payloads,
+		[]string{},
+		map[[2]int]struct{}{{200, 200}: {}}, // JSON statuses
+		map[[2]int]struct{}{{400, 599}: {}}, // error statuses: 400-599
+		nil,                                 // OK statuses
+	)
+	resp, ok := result.(map[string]interface{})
+	if ok {
+		ers, ok := resp["errors"].(bool)
+		if ok && ers {
+			msg := interfaceToStringTrunc(result, 1000, true)
+			fmt.Printf("%s(key=%s): bulk upload failed: status=%d, %s\n", idxName, key, status, msg)
+			err = fmt.Errorf("%s", msg)
+		}
+	}
+	if err == nil {
+		fmt.Printf("%s(key=%s) ES bulk upload saved %d items\n", idxName, key, len(items))
+		return
+	}
+	var sResp string
+	bResp, ok := result.([]byte)
+	if ok {
+		sResp = bytesToStringTrunc(bResp, 1024, true)
+	}
+	fmt.Printf("%s(key=%s) ES bulk upload of %d items failed, falling back to one-by-one mode, response: %s\n", idxName, key, len(items), sResp)
+	fmt.Printf("%s(key=%s) ES bulk upload error: %+v\n", idxName, key, err)
+	err = nil
+	// Fallback to one-by-one inserts
+	indexName := idxName
+	url = gESURL + "/" + indexName + "/_doc/"
+	headers := map[string]string{"Content-Type": "application/json"}
+	var itemStatus int
+	for _, item := range items {
+		doc, _ = jsoniter.Marshal(item)
+		id, _ := item.(map[string]interface{})[key].(string)
+		id = urlLib.PathEscape(id)
+		_, itemStatus, _, _, _, err = request(
+			url+id,
+			"PUT",
+			headers,
+			doc,
+			[]string{},
+			nil,                                 // JSON statuses
+			map[[2]int]struct{}{{400, 599}: {}}, // error statuses: 400-599
+			map[[2]int]struct{}{{200, 201}: {}}, // OK statuses: 200-201
+		)
+		if err != nil {
+			fmt.Printf("sendToElastic: error: %+v, status=%d for %+v\n", err, itemStatus, item)
+			err = nil
+		}
+	}
+	fmt.Printf("%s(key=%s) ES bulk upload saved %d items (in non-bulk mode)\n", idxName, key, len(items))
+	return
+}
+
+func esBulkUploadFunc(idxFrom, idxTo, itemID string, thrN int, docs, outDocs *[]interface{}, last bool) (e error) {
+	fmt.Printf("ES bulk uploading %d/%d func\n", len(*docs), len(*outDocs))
+	bulkSize := 1000
+	run := func() (err error) {
+		nItems := len(*outDocs)
+		fmt.Printf("ES bulk uploading %d items to ES\n", nItems)
+		nPacks := nItems / bulkSize
+		if nItems%bulkSize != 0 {
+			nPacks++
+		}
+		for i := 0; i < nPacks; i++ {
+			from := i * bulkSize
+			to := from + bulkSize
+			if to > nItems {
+				to = nItems
+			}
+			fmt.Printf("ES bulk upload: bulk uploading pack #%d %d-%d (%d/%d) to ES\n", i+1, from, to, to-from, nPacks)
+			// FIXME
+			fmt.Printf("--- stub ---\n")
+			// err = sendToElastic(idxTo, itemID, (*outDocs)[from:to])
+			if err != nil {
+				return
+			}
+		}
+		return
+	}
+	nDocs := len(*docs)
+	nOutDocs := len(*outDocs)
+	fmt.Printf("ES bulk upload pack size %d/%d last %v\n", nDocs, nOutDocs, last)
+	for _, doc := range *docs {
+		*outDocs = append(*outDocs, doc)
+		nOutDocs = len(*outDocs)
+		if nOutDocs >= bulkSize {
+			fmt.Printf("ES bulk pack size %d/%d reached, flushing\n", nOutDocs, bulkSize)
+			e = run()
+			if e != nil {
+				return
+			}
+			*outDocs = []interface{}{}
+		}
+	}
+	if last {
+		nOutDocs := len(*outDocs)
+		if nOutDocs > 0 {
+			e = run()
+			if e != nil {
+				return
+			}
+			*outDocs = []interface{}{}
+		}
+	}
+	*docs = []interface{}{}
+	nOutDocs = len(*outDocs)
+	if nOutDocs > 0 {
+		fmt.Printf("ES bulk upload %d items left (last %v)\n", nOutDocs, last)
+	}
+	return
+}
+
+func itemsFunc(idxFrom, idxTo, idField string, thrN int, items []interface{}, docs *[]interface{}) (err error) {
+	fmt.Printf("%s -> %s: %d items, %d threads\n", idxFrom, idxTo, len(items), thrN)
+	return
+}
+
 func convertGitHub(idxFrom, idxTo string) (err error) {
-	return nil
+	err = forEachESItem(idxFrom, idxTo, "id", esBulkUploadFunc, itemsFunc)
+	return
 }
 
 func convertGit(idxFrom, idxTo string) (err error) {
