@@ -30,10 +30,12 @@ var (
 		"git":                 {},
 		"github/issue":        {},
 		"github/pull_request": {},
+		"github/repository":   {},
 	}
 	gMapping = map[string][]byte{
 		"github/issue":        []byte(`{"dynamic":true,"properties":{"metadata__updated_on":{"type":"date","format":"strict_date_optional_time||epoch_millis"},"merge_author_geolocation":{"type":"geo_point"},"assignee_geolocation":{"type":"geo_point"},"state":{"type":"keyword"},"user_geolocation":{"type":"geo_point"},"title_analyzed":{"type":"text","index":true},"body_analyzed":{"type":"text","index":true}},"dynamic_templates":[{"notanalyzed":{"match":"*","unmatch":"body","match_mapping_type":"string","mapping":{"type":"keyword"}}},{"formatdate":{"match":"*","match_mapping_type":"date","mapping":{"format":"strict_date_optional_time||epoch_millis","type":"date"}}}]}`),
 		"github/pull_request": []byte(`{"dynamic":true,"properties":{"metadata__updated_on":{"type":"date","format":"strict_date_optional_time||epoch_millis"},"merge_author_geolocation":{"type":"geo_point"},"assignee_geolocation":{"type":"geo_point"},"state":{"type":"keyword"},"user_geolocation":{"type":"geo_point"},"title_analyzed":{"type":"text","index":true},"body_analyzed":{"type":"text","index":true}},"dynamic_templates":[{"notanalyzed":{"match":"*","unmatch":"body","match_mapping_type":"string","mapping":{"type":"keyword"}}},{"formatdate":{"match":"*","match_mapping_type":"date","mapping":{"format":"strict_date_optional_time||epoch_millis","type":"date"}}}]}`),
+		"github/repository":   []byte(`{"dynamic":true,"properties":{"metadata__updated_on":{"type":"date","format":"strict_date_optional_time||epoch_millis"},"merge_author_geolocation":{"type":"geo_point"},"assignee_geolocation":{"type":"geo_point"},"state":{"type":"keyword"},"user_geolocation":{"type":"geo_point"},"title_analyzed":{"type":"text","index":true},"body_analyzed":{"type":"text","index":true}},"dynamic_templates":[{"notanalyzed":{"match":"*","unmatch":"body","match_mapping_type":"string","mapping":{"type":"keyword"}}},{"formatdate":{"match":"*","match_mapping_type":"date","mapping":{"format":"strict_date_optional_time||epoch_millis","type":"date"}}}]}`),
 		"git":                 []byte(`{"dynamic":true,"properties":{"file_data":{"type":"nested"},"authors_signed":{"type":"nested"},"authors_co_authored":{"type":"nested"},"authors_tested":{"type":"nested"},"authors_approved":{"type":"nested"},"authors_reviewed":{"type":"nested"},"authors_reported":{"type":"nested"},"authors_informed":{"type":"nested"},"authors_resolved":{"type":"nested"},"authors_influenced":{"type":"nested"},"author_name":{"type":"keyword"},"metadata__updated_on":{"type":"date","format":"strict_date_optional_time||epoch_millis"},"message_analyzed":{"type":"text","index":true}},"dynamic_templates":[{"notanalyzed":{"match":"*","unmatch":"message_analyzed","match_mapping_type":"string","mapping":{"type":"keyword"}}},{"formatdate":{"match":"*","match_mapping_type":"date","mapping":{"format":"strict_date_optional_time||epoch_millis","type":"date"}}}]}`),
 	}
 	gNoCopyFields = map[string]map[string]struct{}{
@@ -69,6 +71,13 @@ var (
 			"merged_by_data_gender_acc":   {},
 			"merged_by_data_gender":       {},
 		},
+		"github/repository": {
+			"repository_labels":           {},
+			"project_1":                   {},
+			"metadata__gelk_version":      {},
+			"metadata__gelk_backend_name": {},
+			"metadata__filter_raw":        {},
+		},
 		"git": {
 			"repository_labels":           {},
 			"project_1":                   {},
@@ -94,6 +103,9 @@ var (
 			[2]string{"origin", "repo_name"}:   {},
 			[2]string{"id", "pull_request_id"}: {},
 			[2]string{"merged", "is_approved"}: {},
+		},
+		"github/repository": {
+			[2]string{"origin", "repo_name"}: {},
 		},
 		"git": {},
 	}
@@ -713,6 +725,8 @@ func translate(in map[string]interface{}, ds string) (map[string]interface{}, er
 		return translateGithubIssue(in)
 	case "github/pull_request":
 		return translateGithubPullRequest(in)
+	case "github/repository":
+		return translateGithubRepo(in)
 	default:
 		return nil, fmt.Errorf("translate for %s ds type not implemented", ds)
 	}
@@ -940,6 +954,33 @@ func translateGithubPullRequest(in map[string]interface{}) (out map[string]inter
 	return
 }
 
+func translateGithubRepo(in map[string]interface{}) (out map[string]interface{}, err error) {
+	out = make(map[string]interface{})
+	noCopyFields := gNoCopyFields["github/repository"]
+	for k, v := range in {
+		_, noCopy := noCopyFields[k]
+		if noCopy {
+			continue
+		}
+		out[k] = v
+	}
+	copyFields := gCopyFields["github/repository"]
+	for data := range copyFields {
+		from := data[0]
+		to := data[1]
+		out[to], _ = in[from]
+	}
+	_, ok := in["project"]
+	if ok {
+		out["project_ts"] = time.Now().Unix()
+	}
+	out["type"] = "repository"
+	out["category"] = "repository"
+	// p2o doesn't have it
+	out["project_slug"] = nil
+	return
+}
+
 func itemsFunc(dsType, idxFrom, idxTo, idField string, thrN int, items []interface{}, docs *[]interface{}) (err error) {
 	fmt.Printf("%s(%s): %s -> %s: %d items, %d threads\n", dsType, idField, idxFrom, idxTo, len(items), thrN)
 	var (
@@ -1018,6 +1059,12 @@ func convertGitHubPullRequest(idxFrom, idxTo string) (err error) {
 	return
 }
 
+func convertGitHubRepo(idxFrom, idxTo string) (err error) {
+	fatalOnError(handleMapping(idxTo, gMapping["github/repository"], false))
+	err = forEachESItem("github/repository", idxFrom, idxTo, "uuid", esBulkUploadFunc, itemsFunc)
+	return
+}
+
 func convertGit(idxFrom, idxTo string) (err error) {
 	fatalOnError(handleMapping(idxTo, gMapping["git"], false))
 	err = forEachESItem("git", idxFrom, idxTo, "url_id", esBulkUploadFunc, itemsFunc)
@@ -1032,6 +1079,8 @@ func convert(dsType, idxFrom, idxTo string) (err error) {
 		err = convertGitHubIssue(idxFrom, idxTo)
 	case "github/pull_request":
 		err = convertGitHubPullRequest(idxFrom, idxTo)
+	case "github/repository":
+		err = convertGitHubRepo(idxFrom, idxTo)
 	default:
 		err = fmt.Errorf("%s support not implemented", dsType)
 	}
