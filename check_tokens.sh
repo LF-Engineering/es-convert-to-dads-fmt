@@ -1,4 +1,6 @@
 #!/bin/bash
+# usage:
+# [NO_REDACTED=1] ./check_tokens.sh 
 now=`date +%s`
 tokens="`cat ../sync-data-sources/helm-charts/sds-helm/sds-helm/secrets/GITHUB_OAUTH.secret`"
 tokens="${tokens//,/ }"
@@ -15,5 +17,10 @@ do
     remains="${remains/x-ratelimit-remaining: /}"
     reset="${reset/x-ratelimit-reset: /}"
     secs=$(((reset-now)/60))
-    echo "token: $f points: $points remaining: $remains reset: ${secs} min"
+    if [ ! -z "$NO_REDACTED" ]
+    then
+      echo "token: $f points: $points remaining: $remains reset: ${secs} min"
+    else
+      echo "token: [redacted] points: $points remaining: $remains reset: ${secs} min"
+    fi
 done
