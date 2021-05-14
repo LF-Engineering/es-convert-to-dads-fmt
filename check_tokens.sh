@@ -1,4 +1,5 @@
 #!/bin/bash
+now=`date +%s`
 tokens="`cat ../sync-data-sources/helm-charts/sds-helm/sds-helm/secrets/GITHUB_OAUTH.secret`"
 tokens="${tokens//,/ }"
 for f in $tokens
@@ -10,5 +11,9 @@ do
     points="$(echo "$points" | tr -d '\n' | tr -d '\r')"
     remains="$(echo "$remains" | tr -d '\n' | tr -d '\r')"
     reset="$(echo "$reset" | tr -d '\n' | tr -d '\r')"
-    echo "token $f $points $remains $reset"
+    points="${points/x-ratelimit-limit: /}"
+    remains="${remains/x-ratelimit-remaining: /}"
+    reset="${reset/x-ratelimit-reset: /}"
+    secs=$(((reset-now)/60))
+    echo "token: $f points: $points remaining: $remains reset: ${secs} min"
 done
