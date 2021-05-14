@@ -1048,26 +1048,42 @@ func itemsFunc(dsType, idxFrom, idxTo, idField string, thrN int, items []interfa
 }
 
 func convertGitHubIssue(idxFrom, idxTo string) (err error) {
+	key := os.Getenv("KEY")
+	if key == "" {
+		key = "url_id"
+	}
 	fatalOnError(handleMapping(idxTo, gMapping["github/issue"], false))
-	err = forEachESItem("github/issue", idxFrom, idxTo, "url_id", esBulkUploadFunc, itemsFunc)
+	err = forEachESItem("github/issue", idxFrom, idxTo, key, esBulkUploadFunc, itemsFunc)
 	return
 }
 
 func convertGitHubPullRequest(idxFrom, idxTo string) (err error) {
+	key := os.Getenv("KEY")
+	if key == "" {
+		key = "url_id"
+	}
 	fatalOnError(handleMapping(idxTo, gMapping["github/pull_request"], false))
-	err = forEachESItem("github/pull_request", idxFrom, idxTo, "url_id", esBulkUploadFunc, itemsFunc)
+	err = forEachESItem("github/pull_request", idxFrom, idxTo, key, esBulkUploadFunc, itemsFunc)
 	return
 }
 
 func convertGitHubRepo(idxFrom, idxTo string) (err error) {
+	key := os.Getenv("KEY")
+	if key == "" {
+		key = "uuid"
+	}
 	fatalOnError(handleMapping(idxTo, gMapping["github/repository"], false))
-	err = forEachESItem("github/repository", idxFrom, idxTo, "uuid", esBulkUploadFunc, itemsFunc)
+	err = forEachESItem("github/repository", idxFrom, idxTo, key, esBulkUploadFunc, itemsFunc)
 	return
 }
 
 func convertGit(idxFrom, idxTo string) (err error) {
+	key := os.Getenv("KEY")
+	if key == "" {
+		key = "url_id"
+	}
 	fatalOnError(handleMapping(idxTo, gMapping["git"], false))
-	err = forEachESItem("git", idxFrom, idxTo, "url_id", esBulkUploadFunc, itemsFunc)
+	err = forEachESItem("git", idxFrom, idxTo, key, esBulkUploadFunc, itemsFunc)
 	return
 }
 
