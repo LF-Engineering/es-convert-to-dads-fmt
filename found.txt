@@ -1,0 +1,139 @@
+1)
+origin            |      cnt      
+------------------------------+---------------
+https://github.com/graphql/tsc|12             
+
+gql-gql:graphql/tsc exact matches
+index: sds-gql-gql-git
+            origin            |      cnt      
+------------------------------+---------------
+https://github.com/graphql/tsc|1              
+
+index: sds-gql-gql-github-repository
+            origin            |      cnt      
+------------------------------+---------------
+https://github.com/graphql/tsc|11             
+
+----------------------------------------
+2)
+                    origin                     |      cnt
+-----------------------------------------------+---------------
+https://github.com/hyperledger/aries-ams-sqlite|120
+
+hyperledger-*:hyperledger/aries-ams-sqlite exact matches
+index: sds-hyperledger-aries-git
+                    origin                     |      cnt
+-----------------------------------------------+---------------
+https://github.com/hyperledger/aries-ams-sqlite|3
+
+index: sds-hyperledger-aries-github-issue
+                    origin                     |      cnt
+-----------------------------------------------+---------------
+https://github.com/hyperledger/aries-ams-sqlite|2
+
+index: sds-hyperledger-aries-github-repository
+                    origin                     |      cnt
+-----------------------------------------------+---------------
+https://github.com/hyperledger/aries-ams-sqlite|112
+
+index: sds-hyperledger-hyperledger-all-git
+                    origin                     |      cnt
+-----------------------------------------------+---------------
+https://github.com/hyperledger/aries-ams-sqlite|3
+
+----------------------------------------
+3)
+                  origin                   |      cnt      
+-------------------------------------------+---------------
+https://github.com/hyperledger-twgc/grpc-gm|58             
+
+hyperledger-*:hyperledger-twgc/grpc-gm exact matches
+index: sds-hyperledger-hyperledger-all-git
+                  origin                   |      cnt      
+-------------------------------------------+---------------
+https://github.com/hyperledger-twgc/grpc-gm|4              
+
+index: sds-hyperledger-hyperledger-twgc-git
+                  origin                   |      cnt      
+-------------------------------------------+---------------
+https://github.com/hyperledger-twgc/grpc-gm|4              
+
+index: sds-hyperledger-hyperledger-twgc-github-issue
+                  origin                   |      cnt      
+-------------------------------------------+---------------
+https://github.com/hyperledger-twgc/grpc-gm|3              
+
+index: sds-hyperledger-hyperledger-twgc-github-repository
+                  origin                   |      cnt      
+-------------------------------------------+---------------
+https://github.com/hyperledger-twgc/grpc-gm|47             
+
+----------------------------------------
+4)
+              origin               |      cnt      
+-----------------------------------+---------------
+https://github.com/trustoverip/ACDC|2              
+
+jdf-*:trustoverip/ACDC exact matches
+index: sds-jdf-toip-git
+              origin               |      cnt      
+-----------------------------------+---------------
+https://github.com/trustoverip/ACDC|1              
+
+index: sds-jdf-toip-github-repository
+              origin               |      cnt      
+-----------------------------------+---------------
+https://github.com/trustoverip/ACDC|1              
+
+----------------------------------------
+5)
+              origin               |      cnt
+-----------------------------------+---------------
+https://github.com/TarsCloud/DCache|304
+
+tarscloud:TarsCloud/DCache exact matches
+index: sds-tarscloud-git
+              origin               |      cnt
+-----------------------------------+---------------
+https://github.com/TarsCloud/DCache|96
+
+index: sds-tarscloud-github-issue
+              origin               |      cnt
+-----------------------------------+---------------
+https://github.com/TarsCloud/DCache|6
+
+index: sds-tarscloud-github-repository
+              origin               |      cnt
+-----------------------------------+---------------
+https://github.com/TarsCloud/DCache|202
+
+----------------------------------------
+6)
+                         origin                          |      cnt
+---------------------------------------------------------+---------------
+http://git.yoctoproject.org/git/user-contrib/sgw/meta-kvm|1
+
+yocto:http://git.yoctoproject.org/git/user-contrib/sgw/meta-kvm exact matches
+index: sds-yocto-git-for-merge
+                         origin                          |      cnt
+---------------------------------------------------------+---------------
+http://git.yoctoproject.org/git/user-contrib/sgw/meta-kvm|1
+
+----------------------------------------
+7)
+                origin                |      cnt
+--------------------------------------+---------------
+https://github.com/zowe/docs-site-temp|622
+
+open-mainframe-project-zowe:zowe/docs-site-temp exact matches
+index: sds-open-mainframe-project-zowe-git
+                origin                |      cnt
+--------------------------------------+---------------
+https://github.com/zowe/docs-site-temp|4
+
+index: sds-open-mainframe-project-zowe-github-repository
+                origin                |      cnt
+--------------------------------------+---------------
+https://github.com/zowe/docs-site-temp|618
+
+----------------------------------------
