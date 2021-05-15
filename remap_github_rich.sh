@@ -63,18 +63,16 @@ echo curl -s -XPUT "${ESURL}/${fromidx}"
 curl -s -XPUT "${ESURL}/${fromidx}" | jq '.' || exit 8
 echo curl -s -XPUT -H 'Content-Type: application/json' -s "${ESURL}/${fromidx}/_settings" -d'{"index.mapping.total_fields.limit":50000}'
 curl -s -XPUT -H 'Content-Type: application/json' -s "${ESURL}/${fromidx}/_settings" -d'{"index.mapping.total_fields.limit":50000}' | jq '.' || exit 9
-echo curl -s -XPUT -H 'Content-Type: application/json' "${ESURL}/${fromidx}/_mapping" -d'{"dynamic":true,"properties":{"metadata__updated_on":{"type":"date","format":"strict_date_optional_time||epoch_millis"},"data":{"properties":{"comments_data":{"dynamic":false,"properties":{"body":{"type":"text","index":true}}},"review_comments_data":{"dynamic":false,"properties":{"body":{"type":"text","index":true},"diff_hunk":{"type":"text","index":true}}},"reviews_data":{"dynamic":false,"properties":{"body":{"type":"text","index":true}}},"body":{"type":"text","index":true}}}}}'
-curl -s -XPUT -H 'Content-Type: application/json' "${ESURL}/${fromidx}/_mapping" -d'{"dynamic":true,"properties":{"metadata__updated_on":{"type":"date","format":"strict_date_optional_time||epoch_millis"},"data":{"properties":{"comments_data":{"dynamic":false,"properties":{"body":{"type":"text","index":true}}},"review_comments_data":{"dynamic":false,"properties":{"body":{"type":"text","index":true},"diff_hunk":{"type":"text","index":true}}},"reviews_data":{"dynamic":false,"properties":{"body":{"type":"text","index":true}}},"body":{"type":"text","index":true}}}}}' | jq '.' || exit 10
-echo curl -s -XPUT -H 'Content-Type: application/json' "${ESURL}/${fromidx}/_mapping" -d'{"dynamic_templates":[{"notanalyzed":{"match":"*","match_mapping_type":"string","mapping":{"type":"keyword"}}},{"formatdate":{"match":"*","match_mapping_type":"date","mapping":{"type":"date","format":"strict_date_optional_time||epoch_millis"}}}]}'
-curl -s -XPUT -H 'Content-Type: application/json' "${ESURL}/${fromidx}/_mapping" -d'{"dynamic_templates":[{"notanalyzed":{"match":"*","match_mapping_type":"string","mapping":{"type":"keyword"}}},{"formatdate":{"match":"*","match_mapping_type":"date","mapping":{"type":"date","format":"strict_date_optional_time||epoch_millis"}}}]}' | jq '.' || exit 11
+echo curl -s -XPUT -H 'Content-Type: application/json' "${ESURL}/${fromidx}/_mapping" -d'{"dynamic":true,"properties":{"metadata__updated_on":{"type":"date","format":"strict_date_optional_time||epoch_millis"},"merge_author_geolocation":{"type":"geo_point"},"assignee_geolocation":{"type":"geo_point"},"state":{"type":"keyword"},"user_geolocation":{"type":"geo_point"},"title_analyzed":{"type":"text","index":true},"body_analyzed":{"type":"text","index":true}},"dynamic_templates":[{"notanalyzed":{"match":"*","unmatch":"body","match_mapping_type":"string","mapping":{"type":"keyword"}}},{"formatdate":{"match":"*","match_mapping_type":"date","mapping":{"format":"strict_date_optional_time||epoch_millis","type":"date"}}}]}'
+curl -s -XPUT -H 'Content-Type: application/json' "${ESURL}/${fromidx}/_mapping" -d'{"dynamic":true,"properties":{"metadata__updated_on":{"type":"date","format":"strict_date_optional_time||epoch_millis"},"merge_author_geolocation":{"type":"geo_point"},"assignee_geolocation":{"type":"geo_point"},"state":{"type":"keyword"},"user_geolocation":{"type":"geo_point"},"title_analyzed":{"type":"text","index":true},"body_analyzed":{"type":"text","index":true}},"dynamic_templates":[{"notanalyzed":{"match":"*","unmatch":"body","match_mapping_type":"string","mapping":{"type":"keyword"}}},{"formatdate":{"match":"*","match_mapping_type":"date","mapping":{"format":"strict_date_optional_time||epoch_millis","type":"date"}}}]}' | jq '.' || exit 10
 echo curl -s -XPOST -H 'Content-Type: application/json' "${ESURL}/_reindex?refresh=true&wait_for_completion=true" -d"{\"source\":{\"index\":\"${toidx}\"},\"dest\":{\"index\":\"${fromidx}\"}}"
 curl -s -XPOST -H 'Content-Type: application/json' "${ESURL}/_reindex?refresh=true&wait_for_completion=true" -d"{\"source\":{\"index\":\"${toidx}\"},\"dest\":{\"index\":\"${fromidx}\"}}" | jq '.'
 maybe_wait $? "${toidx}"
 if [ ! $? = "0" ]
 then
   echo "reindexing ${toidx} -> ${fromidx} failed"
-  exit 12
+  exit 11
 fi
 echo curl -s -XDELETE "${ESURL}/${toidx}"
-curl -s -XDELETE "${ESURL}/${toidx}" | jq '.' || exit 13
+curl -s -XDELETE "${ESURL}/${toidx}" | jq '.' || exit 12
 echo "${fromidx} remapped"
