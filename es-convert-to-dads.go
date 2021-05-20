@@ -840,6 +840,7 @@ func translateGit(in map[string]interface{}) (out map[string]interface{}, err er
 	out["program_language_summary"] = []interface{}{}
 	out["file_data"] = []interface{}{}
 	out["doc_commit"] = false
+	out["type"] = "commit"
 	return
 }
 
